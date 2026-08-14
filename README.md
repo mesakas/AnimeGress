@@ -30,7 +30,7 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 本项目已经以嵌入式包方式安装在 `Packages/com.ming.animegress`。
 
-发布到远程 Git 仓库后，可以在 Package Manager 中使用 Git URL 安装，并在 URL 末尾指定 `#v1.0`。也可以选择 **Add package from disk**，然后选择本目录的 `package.json`。
+可以在 Package Manager 中使用 Git URL 安装，并在 URL 末尾指定 `#v1.0`。也可以选择 **Add package from disk**，然后选择本目录的 `package.json`。
 
 ## URP 配置
 
