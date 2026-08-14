@@ -1,6 +1,6 @@
 # AnimeGress
 
-AnimeGress 是面向 Unity URP 的确定性风格化草系统。它提供手工铺设、单株编辑、GPU Instancing、LOD 点状渐隐、全局风场、风场颜色变化、阴影和视锥剔除。
+AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、单株编辑、GPU Instancing、LOD 点状渐隐、全局风场、风场颜色变化、阴影和视锥剔除。
 
 当前包版本为 `1.0.0`，Git 发布标签为 `v1.0`。
 
