@@ -4,6 +4,12 @@ AnimeGress 是面向 Unity URP 的确定性风格化草系统。它提供手工�
 
 当前包版本为 `1.0.0`，Git 发布标签为 `v1.0`。
 
+## 效果预览
+
+![AnimeGress 风格化草场效果](Documentation~/animegress-scene-preview.png)
+
+![AnimeGress 草场铺设工具与配置界面](Documentation~/animegress-editor-tools.png)
+
 ## 环境要求
 
 - Unity 6.0 或更高版本
