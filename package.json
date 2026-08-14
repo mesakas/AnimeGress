@@ -1,0 +1,21 @@
+{
+  "name": "com.ming.animegress",
+  "version": "1.0.0",
+  "displayName": "AnimeGress",
+  "description": "A deterministic stylized grass painting and GPU-instanced rendering toolkit for Unity URP.",
+  "unity": "6000.0",
+  "dependencies": {
+    "com.unity.render-pipelines.universal": "17.0.0"
+  },
+  "keywords": [
+    "grass",
+    "foliage",
+    "stylized",
+    "instancing",
+    "lod",
+    "urp"
+  ],
+  "author": {
+    "name": "ming"
+  }
+}
