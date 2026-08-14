@@ -86,6 +86,4 @@ AnimeGress 是面向 Unity URP 的确定性风格化草系统。它提供手工�
 - `Ming.AnimeGress.Runtime`
 - `Ming.AnimeGress.Editor`
 
-## Git 发布
 
-包根目录本身是独立 Git 仓库。`package.json` 使用语义版本 `1.0.0`，对应发布标签 `v1.0`。
