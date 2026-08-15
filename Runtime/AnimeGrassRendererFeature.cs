@@ -22,15 +22,19 @@ namespace Enlyn.Grass
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
             Camera renderCamera = renderingData.cameraData.camera;
-            if (!Application.isPlaying
-                || renderPass == null
+            bool renderFarFields = AnimeGrassFarField.ShouldRenderAny(renderCamera);
+            if (renderPass == null
                 || !AnimeGrassField.HasActiveFields
-                || !AnimeGrassField.ShouldRenderCamera(renderCamera))
+                || !AnimeGrassField.ShouldRenderCamera(renderCamera)
+                || (!Application.isPlaying && !renderFarFields))
             {
                 return;
             }
 
             renderPass.renderPassEvent = renderPassEvent;
+            renderPass.ConfigureInput(renderFarFields
+                ? ScriptableRenderPassInput.Depth
+                : ScriptableRenderPassInput.None);
             renderer.EnqueuePass(renderPass);
         }
 
@@ -50,14 +54,18 @@ namespace Enlyn.Grass
                 CommandBuffer commandBuffer = CommandBufferPool.Get();
                 using (new ProfilingScope(commandBuffer, ProfilingSampler))
                 {
-                    AnimeGrassField.MarkRenderedByRendererFeature(renderCamera);
-                    var fields = AnimeGrassField.ActiveFields;
-                    for (int i = 0; i < fields.Count; i++)
+                    AnimeGrassFarField.RenderAll(renderCamera, commandBuffer);
+                    if (Application.isPlaying)
                     {
-                        AnimeGrassField field = fields[i];
-                        if (field != null && field.isActiveAndEnabled)
+                        AnimeGrassField.MarkRenderedByRendererFeature(renderCamera);
+                        var fields = AnimeGrassField.ActiveFields;
+                        for (int i = 0; i < fields.Count; i++)
                         {
-                            field.RenderForCamera(renderCamera, commandBuffer);
+                            AnimeGrassField field = fields[i];
+                            if (field != null && field.isActiveAndEnabled)
+                            {
+                                field.RenderForCamera(renderCamera, commandBuffer);
+                            }
                         }
                     }
                 }

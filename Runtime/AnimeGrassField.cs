@@ -105,6 +105,7 @@ namespace Enlyn.Grass
         public int LastSkippedMissingLodCount => lastSkippedMissingLodCount;
         public int LastSkippedDistanceCount => lastSkippedDistanceCount;
         public int LastFallbackMeshCount => lastFallbackMeshCount;
+        public int RenderingLayer => renderingLayer;
         internal static IReadOnlyList<AnimeGrassField> ActiveFields => ActiveFieldList;
         internal static bool HasActiveFields => ActiveFieldList.Count > 0;
 
@@ -259,6 +260,10 @@ namespace Enlyn.Grass
         public void MarkDirty()
         {
             chunksDirty = true;
+            if (TryGetComponent(out AnimeGrassFarField farField))
+            {
+                farField.MarkDirty();
+            }
 #if UNITY_EDITOR
             editorPreviewDirty = true;
 #endif
@@ -354,6 +359,10 @@ namespace Enlyn.Grass
             gizmoSize = Mathf.Max(0.01f, gizmoSize);
             chunksDirty = true;
             batches.Clear();
+            if (TryGetComponent(out AnimeGrassFarField farField))
+            {
+                farField.MarkDirty();
+            }
 #if UNITY_EDITOR
             editorPreviewDirty = true;
 #endif
@@ -762,6 +771,8 @@ namespace Enlyn.Grass
                 return;
             }
 
+            AnimeSurfaceCache.BindForCamera(renderCamera, commandBuffer);
+            AnimeSurfaceCacheStamp.ApplyGrassInteractionGlobals(commandBuffer);
             RenderGrass(renderCamera, commandBuffer);
         }
 

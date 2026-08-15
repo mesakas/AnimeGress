@@ -83,6 +83,40 @@ namespace Enlyn.Grass.Editor
             DrawPrototypeWarnings(field);
 
             EditorGUILayout.Space(8f);
+            EditorGUILayout.LabelField("远景覆盖（可选）", EditorStyles.boldLabel);
+            AnimeGrassFarField farField = field.GetComponent<AnimeGrassFarField>();
+            if (farField == null)
+            {
+                EditorGUILayout.HelpBox(
+                    "最后一级 LOD 消失后，可用低成本的地表颜色、风色和伪阴影覆盖维持远景草场的整体变化。",
+                    MessageType.Info);
+                if (GUILayout.Button("添加远景草覆盖"))
+                {
+                    farField = Undo.AddComponent<AnimeGrassFarField>(field.gameObject);
+                    EditorUtility.SetDirty(field.gameObject);
+                    Selection.activeObject = farField;
+                }
+            }
+            else
+            {
+                EditorGUILayout.LabelField("缓存实例数", farField.CachedInstanceCount.ToString());
+                EditorGUILayout.LabelField("缓存状态", farField.IsDirty ? "等待重建" : "已就绪");
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("选择远景覆盖配置"))
+                    {
+                        Selection.activeObject = farField;
+                    }
+
+                    if (GUILayout.Button("立即重建覆盖缓存"))
+                    {
+                        farField.RebuildNow();
+                        SceneView.RepaintAll();
+                    }
+                }
+            }
+
+            EditorGUILayout.Space(8f);
             EditorGUILayout.LabelField("运行时数据", EditorStyles.boldLabel);
             EditorGUILayout.LabelField("已铺草实例数", field.InstanceCount.ToString());
             EditorGUILayout.LabelField("最近渲染相机", field.LastRenderCameraName);

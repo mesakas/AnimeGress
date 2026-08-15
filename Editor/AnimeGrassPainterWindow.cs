@@ -36,9 +36,9 @@ namespace Enlyn.Grass.Editor
         private float brushRadius = 1.5f;
         private float brushSpacing = 0.8f;
         private int density = 10;
-        private Vector2 uniformScaleRange = new Vector2(0.85f, 1.15f);
+        [SerializeField] private Vector3 randomScaleRatio = new Vector3(0.15f, 0.15f, 0.15f);
+        [SerializeField] private Vector3 randomRotationRatio = new Vector3(0f, 1f, 0f);
         private bool alignToSurfaceNormal = true;
-        private bool randomYaw = true;
         private Color instanceColor = Color.white;
         private float colorJitter;
         private float instanceWindWeight = 1f;
@@ -164,11 +164,12 @@ namespace Enlyn.Grass.Editor
                 brushRadius = Mathf.Max(0.05f, EditorGUILayout.FloatField("笔刷半径", brushRadius));
                 brushSpacing = Mathf.Max(0.05f, EditorGUILayout.FloatField("连续铺设间距", brushSpacing));
                 density = Mathf.Max(1, EditorGUILayout.IntField("每次生成数量", density));
-                uniformScaleRange = EditorGUILayout.Vector2Field("随机缩放范围", uniformScaleRange);
-                uniformScaleRange.x = Mathf.Max(0.001f, uniformScaleRange.x);
-                uniformScaleRange.y = Mathf.Max(uniformScaleRange.x, uniformScaleRange.y);
+                randomScaleRatio = ClampRatio(EditorGUILayout.Vector3Field("随机缩放比例 XYZ", randomScaleRatio));
+                randomRotationRatio = ClampRatio(EditorGUILayout.Vector3Field("随机旋转比例 XYZ", randomRotationRatio));
+                EditorGUILayout.HelpBox(
+                    "缩放比例 0.15 表示该轴在 85% 到 115% 之间随机；旋转比例 1 表示该轴在 -180° 到 180° 之间随机。0 表示该轴不随机。",
+                    MessageType.None);
                 alignToSurfaceNormal = EditorGUILayout.Toggle("贴合表面法线", alignToSurfaceNormal);
-                randomYaw = EditorGUILayout.Toggle("随机朝向", randomYaw);
                 instanceColor = EditorGUILayout.ColorField("实例颜色", instanceColor);
                 colorJitter = Mathf.Clamp01(EditorGUILayout.FloatField("颜色随机幅度", colorJitter));
                 instanceWindWeight = Mathf.Max(0f, EditorGUILayout.FloatField("实例受风权重", instanceWindWeight));
@@ -573,15 +574,15 @@ namespace Enlyn.Grass.Editor
                 }
 
                 Vector3 normal = placementHit.normal.sqrMagnitude > 0.0001f ? placementHit.normal.normalized : Vector3.up;
-                float yaw = randomYaw ? Random.Range(0f, 360f) : 0f;
-                Quaternion rotation = BuildRotation(normal, yaw);
-                float uniformScale = Random.Range(uniformScaleRange.x, uniformScaleRange.y);
+                Vector3 randomEuler = BuildRandomRotation(randomRotationRatio);
+                Quaternion rotation = BuildRotation(normal, randomEuler);
+                Vector3 scale = BuildRandomScale(randomScaleRatio);
                 Color color = JitterColor(instanceColor * prototype.DefaultInstanceColor, colorJitter);
 
                 newInstances.Add(AnimeGrassInstance.Create(
                     placementHit.point,
                     rotation,
-                    Vector3.one * uniformScale,
+                    scale,
                     normal,
                     prototypeIndex,
                     color,
@@ -635,15 +636,45 @@ namespace Enlyn.Grass.Editor
             return centerHit;
         }
 
-        private Quaternion BuildRotation(Vector3 normal, float yaw)
+        private Quaternion BuildRotation(Vector3 normal, Vector3 randomEuler)
         {
+            Quaternion randomRotation = Quaternion.Euler(randomEuler);
             if (!alignToSurfaceNormal)
             {
-                return Quaternion.Euler(0f, yaw, 0f);
+                return randomRotation;
             }
 
             Quaternion surfaceRotation = Quaternion.FromToRotation(Vector3.up, normal);
-            return Quaternion.AngleAxis(yaw, normal) * surfaceRotation;
+            return surfaceRotation * randomRotation;
+        }
+
+        private static Vector3 BuildRandomScale(Vector3 ratio)
+        {
+            return new Vector3(
+                Mathf.Max(0.001f, 1f + RandomSigned(ratio.x)),
+                Mathf.Max(0.001f, 1f + RandomSigned(ratio.y)),
+                Mathf.Max(0.001f, 1f + RandomSigned(ratio.z)));
+        }
+
+        private static Vector3 BuildRandomRotation(Vector3 ratio)
+        {
+            return new Vector3(
+                RandomSigned(ratio.x) * 180f,
+                RandomSigned(ratio.y) * 180f,
+                RandomSigned(ratio.z) * 180f);
+        }
+
+        private static float RandomSigned(float ratio)
+        {
+            return ratio > 0f ? Random.Range(-ratio, ratio) : 0f;
+        }
+
+        private static Vector3 ClampRatio(Vector3 ratio)
+        {
+            ratio.x = Mathf.Clamp01(ratio.x);
+            ratio.y = Mathf.Clamp01(ratio.y);
+            ratio.z = Mathf.Clamp01(ratio.z);
+            return ratio;
         }
 
         private bool TryGetMouseHit(Vector2 mousePosition, out RaycastHit hit)
