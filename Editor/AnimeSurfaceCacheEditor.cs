@@ -290,7 +290,7 @@ namespace Enlyn.Grass.Editor
             Selection.activeGameObject = cacheObject;
         }
 
-        [MenuItem("GameObject/AnimeGress/地表遮罩 Volume", false, 12)]
+        [MenuItem("GameObject/AnimeGress/GressVolume", false, 12)]
         private static void CreateSurfaceStamp(MenuCommand command)
         {
             Vector3 position = SceneView.lastActiveSceneView != null
@@ -301,11 +301,12 @@ namespace Enlyn.Grass.Editor
 
         private static void CreateStamp(Vector3 position, GameObject parent = null)
         {
-            GameObject stampObject = new GameObject("AnimeGress 地表遮罩 Volume");
+            GameObject stampObject = new GameObject("GressVolume");
             GameObjectUtility.SetParentAndAlign(stampObject, parent);
             stampObject.transform.position = position;
-            Undo.RegisterCreatedObjectUndo(stampObject, "创建 AnimeGress 地表遮罩 Volume");
-            stampObject.AddComponent<AnimeSurfaceCacheStamp>();
+            stampObject.transform.localScale = Vector3.one * 2f;
+            Undo.RegisterCreatedObjectUndo(stampObject, "创建 GressVolume");
+            stampObject.AddComponent<GressVolume>();
             Selection.activeGameObject = stampObject;
         }
 
@@ -372,8 +373,8 @@ namespace Enlyn.Grass.Editor
         }
     }
 
-    [CustomEditor(typeof(AnimeSurfaceCacheStamp))]
-    public sealed class AnimeSurfaceCacheStampEditor : UnityEditor.Editor
+    [CustomEditor(typeof(GressVolume))]
+    public sealed class GressVolumeEditor : UnityEditor.Editor
     {
         private static readonly string[] ShapeNames = { "球形 Volume", "盒形 Volume" };
 
@@ -382,19 +383,28 @@ namespace Enlyn.Grass.Editor
             serializedObject.Update();
             SerializedProperty shape = serializedObject.FindProperty("shape");
             shape.enumValueIndex = EditorGUILayout.Popup(new GUIContent("形状"), shape.enumValueIndex, ShapeNames);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("size"), new GUIContent("水平尺寸 XZ"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("height"), new GUIContent("Volume 高度"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("hardness"), new GUIContent("边缘硬度"));
 
             EditorGUILayout.HelpBox(
-                "只有缓存地表高度位于这个三维 Volume 内时才会写入遮罩。Volume 支持绕 Y 轴旋转。",
+                "GressVolume 的位置、三轴旋转和尺寸完全由 Transform 控制；Scale X/Y/Z 分别对应本地三轴尺寸。静态模式按缓存地表高度写入遮罩，实时模式直接在 GPU 中检查草根或远景地表位置。",
                 MessageType.Info);
 
             EditorGUILayout.Space(8f);
             EditorGUILayout.LabelField("草场控制", EditorStyles.boldLabel);
+            SerializedProperty exclusion = serializedObject.FindProperty("exclusion");
             EditorGUILayout.PropertyField(
-                serializedObject.FindProperty("exclusion"),
-                new GUIContent("排除草强度", "0 表示不移除草，1 表示完全移除 Volume 内的草。需要地表属性缓存更新。"));
+                exclusion,
+                new GUIContent("排除草强度", "0 表示不移除草，1 表示完全移除 Volume 内的草。只有静态模式需要更新地表缓存。"));
+            if (exclusion.floatValue > 0.0001f)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("realtimeExclusion"),
+                    new GUIContent(
+                        "实时跟随 Transform",
+                        "通过 GPU Volume 实时排除草，不把该 Volume 烘焙进地表缓存。挂在 Camera 或其子对象上时会自动启用。"));
+                EditorGUI.indentLevel--;
+            }
             SerializedProperty repelGrass = serializedObject.FindProperty("repelGrass");
             EditorGUILayout.PropertyField(
                 repelGrass,
@@ -416,8 +426,11 @@ namespace Enlyn.Grass.Editor
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty("renderInEditMode"), new GUIContent("编辑模式生效"));
 
+            GressVolume volume = (GressVolume)target;
             EditorGUILayout.HelpBox(
-                "推动草叶是实时 GPU 效果，不需要重建地表缓存。排除草会写入地表缓存；设置为“仅手动更新”时需要手动重建。最多同时处理 16 个启用推动的 Volume。",
+                volume.UsesRealtimeExclusion
+                    ? "当前排除草使用实时 GPU Volume，会跟随 Transform 和父级 Camera 移动，不需要重建地表缓存。草叶推动同样实时生效；最多同时处理 16 个实时 Volume。"
+                    : "当前排除草写入地表缓存；缓存设置为“仅手动更新”时需要手动重建。开启“实时跟随 Transform”可用于移动物体。草叶推动始终是实时 GPU 效果。",
                 MessageType.Info);
 
             EditorGUILayout.Space(8f);
@@ -429,8 +442,7 @@ namespace Enlyn.Grass.Editor
                 serializedObject.FindProperty("showSelectedFill"),
                 new GUIContent("选中时显示填充", "选中 Volume 时显示淡色的三维体积填充。"));
 
-            AnimeSurfaceCacheStamp stamp = (AnimeSurfaceCacheStamp)target;
-            Bounds worldBounds = stamp.WorldBounds;
+            Bounds worldBounds = volume.WorldBounds;
             EditorGUILayout.LabelField("世界范围中心", worldBounds.center.ToString("F2"));
             EditorGUILayout.LabelField("世界包围盒大小", worldBounds.size.ToString("F2"));
             EditorGUILayout.LabelField(
@@ -446,27 +458,27 @@ namespace Enlyn.Grass.Editor
             }
         }
 
-        internal static void DrawOverlayHandles(AnimeSurfaceCacheStamp stamp)
+        internal static void DrawOverlayHandles(GressVolume volume)
         {
             CompareFunction previousZTest = Handles.zTest;
             Handles.zTest = CompareFunction.Always;
-            DrawVolumeHandle(stamp, 1f, GetOuterHandleColor(stamp));
+            DrawVolumeHandle(volume, 1f, GetOuterHandleColor(volume));
 
-            if (stamp.Exclusion > 0.0001f && stamp.Hardness > 0.0001f)
+            if (volume.Exclusion > 0.0001f && volume.Hardness > 0.0001f)
             {
                 DrawVolumeHandle(
-                    stamp,
-                    Mathf.Clamp01(stamp.Hardness),
+                    volume,
+                    Mathf.Clamp01(volume.Hardness),
                     new Color(1f, 0.2f, 0.15f, 1f));
             }
 
-            if (stamp.RepelGrass && stamp.GrassRepulsionStrength > 0.0001f)
+            if (volume.RepelGrass && volume.GrassRepulsionStrength > 0.0001f)
             {
-                float fullStrengthScale = Mathf.Clamp01(1f - stamp.GrassRepulsionFalloff);
+                float fullStrengthScale = Mathf.Clamp01(1f - volume.GrassRepulsionFalloff);
                 if (fullStrengthScale > 0.0001f)
                 {
                     DrawVolumeHandle(
-                        stamp,
+                        volume,
                         fullStrengthScale,
                         new Color(0.1f, 1f, 0.9f, 1f));
                 }
@@ -476,17 +488,15 @@ namespace Enlyn.Grass.Editor
         }
 
         private static void DrawVolumeHandle(
-            AnimeSurfaceCacheStamp stamp,
+            GressVolume volume,
             float scale,
             Color color)
         {
-            Matrix4x4 matrix = Matrix4x4.TRS(
-                stamp.transform.position,
-                Quaternion.Euler(0f, stamp.transform.eulerAngles.y, 0f),
-                stamp.VolumeSize * scale);
+            Matrix4x4 matrix = volume.transform.localToWorldMatrix
+                * Matrix4x4.Scale(Vector3.one * scale);
             using (new Handles.DrawingScope(color, matrix))
             {
-                if (stamp.Shape == AnimeSurfaceCacheStampShape.Sphere)
+                if (volume.Shape == GressVolumeShape.Sphere)
                 {
                     Handles.DrawWireDisc(Vector3.zero, Vector3.right, 0.5f);
                     Handles.DrawWireDisc(Vector3.zero, Vector3.up, 0.5f);
@@ -499,10 +509,10 @@ namespace Enlyn.Grass.Editor
             }
         }
 
-        private static Color GetOuterHandleColor(AnimeSurfaceCacheStamp stamp)
+        private static Color GetOuterHandleColor(GressVolume volume)
         {
-            bool hasExclusion = stamp.Exclusion > 0.0001f;
-            bool hasRepulsion = stamp.RepelGrass && stamp.GrassRepulsionStrength > 0.0001f;
+            bool hasExclusion = volume.Exclusion > 0.0001f;
+            bool hasRepulsion = volume.RepelGrass && volume.GrassRepulsionStrength > 0.0001f;
             if (hasExclusion && hasRepulsion)
             {
                 return new Color(1f, 0.8f, 0.1f, 1f);
@@ -521,9 +531,9 @@ namespace Enlyn.Grass.Editor
     }
 
     [InitializeOnLoad]
-    internal static class AnimeSurfaceCacheStampSceneOverlay
+    internal static class GressVolumeSceneOverlay
     {
-        static AnimeSurfaceCacheStampSceneOverlay()
+        static GressVolumeSceneOverlay()
         {
             SceneView.duringSceneGui -= DrawVisibleVolumes;
             SceneView.duringSceneGui += DrawVisibleVolumes;
@@ -536,19 +546,19 @@ namespace Enlyn.Grass.Editor
                 return;
             }
 
-            var stamps = AnimeSurfaceCacheStamp.ActiveStamps;
-            for (int stampIndex = 0; stampIndex < stamps.Count; stampIndex++)
+            var volumes = GressVolume.ActiveVolumes;
+            for (int volumeIndex = 0; volumeIndex < volumes.Count; volumeIndex++)
             {
-                AnimeSurfaceCacheStamp stamp = stamps[stampIndex];
-                bool isSelected = stamp != null && Selection.Contains(stamp.gameObject);
-                if (stamp == null
-                    || !stamp.isActiveAndEnabled
-                    || (!isSelected && !stamp.ShowWhenUnselected))
+                GressVolume volume = volumes[volumeIndex];
+                bool isSelected = volume != null && Selection.Contains(volume.gameObject);
+                if (volume == null
+                    || !volume.isActiveAndEnabled
+                    || (!isSelected && !volume.ShowWhenUnselected))
                 {
                     continue;
                 }
 
-                AnimeSurfaceCacheStampEditor.DrawOverlayHandles(stamp);
+                GressVolumeEditor.DrawOverlayHandles(volume);
             }
         }
     }

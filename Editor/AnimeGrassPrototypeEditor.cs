@@ -8,9 +8,26 @@ namespace Enlyn.Grass.Editor
     [CustomEditor(typeof(AnimeGrassPrototype))]
     public sealed class AnimeGrassPrototypeEditor : UnityEditor.Editor
     {
+        private const int LodElementBaseRowCount = 15;
+        private const int SeparateAxisRowCount = 3;
+        private const float LodElementPadding = 8f;
+        private static readonly string[] LodDistanceModeNames =
+        {
+            "三维距离（仅距离控制）",
+            "XY 距离 + Z 轴距离"
+        };
+
         private SerializedProperty lods;
+        private SerializedProperty lodDistanceMode;
         private SerializedProperty windWeight;
         private SerializedProperty defaultInstanceColor;
+        private SerializedProperty distanceDensityEnabled;
+        private SerializedProperty nearDistanceDensity;
+        private SerializedProperty farDistanceDensity;
+        private SerializedProperty densityTransitionStartDistance;
+        private SerializedProperty densityTransitionEndDistance;
+        private SerializedProperty densityTransitionSoftness;
+        private SerializedProperty densityRandomSeed;
         private SerializedProperty modelPositionOffset;
         private SerializedProperty modelRotationOffset;
         private SerializedProperty modelScale;
@@ -19,16 +36,41 @@ namespace Enlyn.Grass.Editor
         private void OnEnable()
         {
             lods = serializedObject.FindProperty("lods");
+            lodDistanceMode = serializedObject.FindProperty("lodDistanceMode");
             windWeight = serializedObject.FindProperty("windWeight");
             defaultInstanceColor = serializedObject.FindProperty("defaultInstanceColor");
+            distanceDensityEnabled = serializedObject.FindProperty("distanceDensityEnabled");
+            nearDistanceDensity = serializedObject.FindProperty("nearDistanceDensity");
+            farDistanceDensity = serializedObject.FindProperty("farDistanceDensity");
+            densityTransitionStartDistance = serializedObject.FindProperty("densityTransitionStartDistance");
+            densityTransitionEndDistance = serializedObject.FindProperty("densityTransitionEndDistance");
+            densityTransitionSoftness = serializedObject.FindProperty("densityTransitionSoftness");
+            densityRandomSeed = serializedObject.FindProperty("densityRandomSeed");
             modelPositionOffset = serializedObject.FindProperty("modelPositionOffset");
             modelRotationOffset = serializedObject.FindProperty("modelRotationOffset");
             modelScale = serializedObject.FindProperty("modelScale");
 
             lodList = new ReorderableList(serializedObject, lods, true, true, true, true);
             lodList.drawHeaderCallback = rect => EditorGUI.LabelField(rect, "LOD 配置");
-            lodList.elementHeightCallback = _ => EditorGUIUtility.singleLineHeight * 8f + 26f;
+            lodList.elementHeight = GetLodElementHeight();
+            lodList.elementHeightCallback = _ => GetLodElementHeight();
             lodList.drawElementCallback = DrawLodElement;
+        }
+
+        private float GetLodElementHeight()
+        {
+            int rowCount = LodElementBaseRowCount
+                + (UsesSeparateAxisDistances() ? SeparateAxisRowCount : 0);
+            float rowsHeight = EditorGUIUtility.singleLineHeight * rowCount;
+            float spacingHeight = EditorGUIUtility.standardVerticalSpacing * (rowCount - 1);
+            return rowsHeight + spacingHeight + LodElementPadding * 2f;
+        }
+
+        private bool UsesSeparateAxisDistances()
+        {
+            return lodDistanceMode != null
+                && lodDistanceMode.enumValueIndex
+                == (int)AnimeGrassLodDistanceMode.SeparateXYAndZ;
         }
 
         public override void OnInspectorGUI()
@@ -50,10 +92,53 @@ namespace Enlyn.Grass.Editor
             }
 
             EditorGUILayout.Space(8f);
+            EditorGUILayout.LabelField("距离密度", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(
+                distanceDensityEnabled,
+                new GUIContent("启用距离密度", "在 LOD 之外，根据相机距离确定性地减少实际提交绘制的草实例数量。"));
+            if (distanceDensityEnabled.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(
+                    nearDistanceDensity,
+                    new GUIContent("近处草数量比例", "密度过渡开始距离以内保留的草实例比例。1 表示全部显示。"));
+                EditorGUILayout.PropertyField(
+                    farDistanceDensity,
+                    new GUIContent("远处草数量比例", "密度过渡结束距离以外保留的草实例比例。0.35 表示约保留 35%。"));
+                EditorGUILayout.PropertyField(
+                    densityTransitionStartDistance,
+                    new GUIContent("密度过渡开始距离", "从该相机距离开始由近处数量逐渐过渡到远处数量。"));
+                EditorGUILayout.PropertyField(
+                    densityTransitionEndDistance,
+                    new GUIContent("密度过渡结束距离", "到达该距离时使用完整的远处草数量比例。"));
+                EditorGUILayout.PropertyField(
+                    densityTransitionSoftness,
+                    new GUIContent("单株切换柔和度", "控制每株草跨过随机密度阈值时的点状渐隐宽度。通常使用 0.05-0.12。"));
+                EditorGUILayout.PropertyField(
+                    densityRandomSeed,
+                    new GUIContent("密度随机种子", "改变被保留草株的确定性随机分布，不会修改铺设数据。"));
+                EditorGUI.indentLevel--;
+            }
+
+            EditorGUILayout.Space(8f);
+            EditorGUILayout.LabelField("LOD 距离", EditorStyles.boldLabel);
+            lodDistanceMode.enumValueIndex = EditorGUILayout.Popup(
+                new GUIContent(
+                    "距离计算模式",
+                    "三维距离使用相机到草株的直线距离；XY 与 Z 分离模式使用 sqrt(dx*dx + dy*dy) 作为 XY 距离，使用 abs(dz) 作为 Z 距离，并由更远的一组决定 LOD。"),
+                lodDistanceMode.enumValueIndex,
+                LodDistanceModeNames);
+            EditorGUILayout.HelpBox(
+                UsesSeparateAxisDistances()
+                    ? "当前使用字面世界 XY 平面距离和世界 Z 轴距离分别控制 LOD：XY = sqrt(dx² + dy²)，Z = abs(dz)。任意一组进入更远级别时，都会切换到对应的低细节 LOD；某级的 Z 结束距离表示该级沿 Z 轴切到下一级，不是整株草消失。"
+                    : "当前仅使用相机到草株的三维直线距离控制 LOD。",
+                MessageType.None);
+
+            EditorGUILayout.Space(8f);
             lodList.DoLayoutList();
             DrawLodWarnings();
 
-            EditorGUILayout.HelpBox("显示距离由每个 LOD 的“开始距离 / 结束距离”控制；“渐隐距离”会使用点状剔除做平滑显隐，不使用透明混合。", MessageType.None);
+            EditorGUILayout.HelpBox("相邻 LOD 会自动连接距离，并在“渐隐距离”内同时提交前后两级，使用互补的随机点状剔除完成平滑替换。距离密度单独控制实际显示的草株数量。", MessageType.None);
 
             serializedObject.ApplyModifiedProperties();
         }
@@ -72,6 +157,7 @@ namespace Enlyn.Grass.Editor
                 SerializedProperty lod = lods.GetArrayElementAtIndex(i);
                 SerializedProperty mesh = lod.FindPropertyRelative("mesh");
                 SerializedProperty material = lod.FindPropertyRelative("material");
+                SerializedProperty endDistance = lod.FindPropertyRelative("endDistance");
 
                 if (mesh.objectReferenceValue == null)
                 {
@@ -81,6 +167,13 @@ namespace Enlyn.Grass.Editor
                 if (material.objectReferenceValue == null)
                 {
                     EditorGUILayout.HelpBox("LOD " + i + " 缺少材质。", MessageType.Warning);
+                }
+
+                if (i < lods.arraySize - 1 && endDistance.floatValue <= 0f)
+                {
+                    EditorGUILayout.HelpBox(
+                        "LOD " + i + " 的结束距离为 0，后续 LOD 无法获得有效的自动切换距离。",
+                        MessageType.Warning);
                 }
 
                 hasRenderableLod |= mesh.objectReferenceValue != null && material.objectReferenceValue != null;
@@ -101,43 +194,167 @@ namespace Enlyn.Grass.Editor
             SerializedProperty startDistance = lod.FindPropertyRelative("startDistance");
             SerializedProperty endDistance = lod.FindPropertyRelative("endDistance");
             SerializedProperty fadeDistance = lod.FindPropertyRelative("fadeDistance");
+            SerializedProperty zStartDistance = lod.FindPropertyRelative("zStartDistance");
+            SerializedProperty zEndDistance = lod.FindPropertyRelative("zEndDistance");
+            SerializedProperty zFadeDistance = lod.FindPropertyRelative("zFadeDistance");
+            SerializedProperty faceTarget = lod.FindPropertyRelative("faceTarget");
+            SerializedProperty faceTargetRotationOffset = lod.FindPropertyRelative("faceTargetRotationOffset");
+            SerializedProperty overheadBend = lod.FindPropertyRelative("overheadBend");
+            SerializedProperty overheadBendAngle = lod.FindPropertyRelative("overheadBendAngle");
+            SerializedProperty overheadBendStartAngle = lod.FindPropertyRelative("overheadBendStartAngle");
+            SerializedProperty overheadBendEndAngle = lod.FindPropertyRelative("overheadBendEndAngle");
             SerializedProperty shadowCasting = lod.FindPropertyRelative("shadowCasting");
             SerializedProperty receiveShadows = lod.FindPropertyRelative("receiveShadows");
 
             float line = EditorGUIUtility.singleLineHeight;
-            float y = rect.y + 4f;
+            float spacing = EditorGUIUtility.standardVerticalSpacing;
+            bool separateAxisDistances = UsesSeparateAxisDistances();
+            float y = rect.y + LodElementPadding;
             Rect lineRect = new Rect(rect.x, y, rect.width, line);
             EditorGUI.LabelField(lineRect, "LOD " + index, EditorStyles.boldLabel);
 
-            y += line + 2f;
+            y += line + spacing;
             lineRect.y = y;
             EditorGUI.PropertyField(lineRect, mesh, new GUIContent("网格 Mesh", "可以是单面片、交叉面片，也可以是完整模型草。"));
 
-            y += line + 2f;
+            y += line + spacing;
             lineRect.y = y;
             EditorGUI.PropertyField(lineRect, material, new GUIContent("材质", "建议使用支持实例化和 _InstanceFade 的草材质。"));
 
-            y += line + 2f;
+            y += line + spacing;
             lineRect.y = y;
             EditorGUI.PropertyField(lineRect, subMeshIndex, new GUIContent("子网格索引"));
 
-            y += line + 2f;
+            y += line + spacing;
             lineRect.y = y;
-            EditorGUI.PropertyField(lineRect, startDistance, new GUIContent("开始距离", "该 LOD 完全显示的距离点。非首个 LOD 会在开始距离之前渐显。"));
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUI.PropertyField(
+                    lineRect,
+                    startDistance,
+                    new GUIContent(
+                        separateAxisDistances
+                            ? (index > 0 ? "XY 开始距离（自动）" : "XY 开始距离（固定）")
+                            : (index > 0 ? "开始距离（自动）" : "开始距离（固定）"),
+                        index > 0
+                            ? "自动等于上一级 LOD 的结束距离，以保证两级的点状过渡连续。"
+                            : "第一级 LOD 固定从 0 距离开始。"));
+            }
 
-            y += line + 2f;
+            y += line + spacing;
             lineRect.y = y;
-            EditorGUI.PropertyField(lineRect, endDistance, new GUIContent("结束距离", "该 LOD 结束显示的距离。最后一个 LOD 的结束距离就是最大显示距离。0 表示无上限。"));
+            EditorGUI.PropertyField(
+                lineRect,
+                endDistance,
+                new GUIContent(
+                    separateAxisDistances ? "XY 结束距离" : "结束距离",
+                    separateAxisDistances
+                        ? "该 LOD 在世界 XY 平面距离上的结束值。0 表示无上限。"
+                        : "该 LOD 结束显示的三维直线距离。最后一个 LOD 的结束距离就是最大显示距离。0 表示无上限。"));
 
-            y += line + 2f;
+            y += line + spacing;
             lineRect.y = y;
-            EditorGUI.PropertyField(lineRect, fadeDistance, new GUIContent("渐隐距离", "在 LOD 切换和最大显示距离处使用点状剔除渐变。"));
+            EditorGUI.PropertyField(
+                lineRect,
+                fadeDistance,
+                new GUIContent(
+                    separateAxisDistances ? "XY 渐隐距离" : "渐隐距离",
+                    "控制从该 LOD 到下一级的互补随机点状过渡；最后一级也用该距离渐隐到最大显示距离。"));
 
-            y += line + 2f;
+            if (separateAxisDistances)
+            {
+                y += line + spacing;
+                lineRect.y = y;
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUI.PropertyField(
+                        lineRect,
+                        zStartDistance,
+                        new GUIContent(
+                            index > 0 ? "Z 开始距离（自动）" : "Z 开始距离（固定）",
+                            "使用相机与草株在世界 Z 轴上的绝对距离，自动连接上一级的 Z 结束距离。"));
+                }
+
+                y += line + spacing;
+                lineRect.y = y;
+                EditorGUI.PropertyField(
+                    lineRect,
+                    zEndDistance,
+                    new GUIContent("Z 结束距离", "该 LOD 在世界 Z 轴绝对距离上的结束值。0 表示无上限。"));
+
+                y += line + spacing;
+                lineRect.y = y;
+                EditorGUI.PropertyField(
+                    lineRect,
+                    zFadeDistance,
+                    new GUIContent("Z 渐隐距离", "沿世界 Z 轴切换到下一级 LOD 时使用的互补点状过渡距离。"));
+            }
+
+            y += line + spacing;
+            lineRect.y = y;
+            EditorGUI.PropertyField(
+                lineRect,
+                faceTarget,
+                new GUIContent(
+                    "始终面向观察目标",
+                    "绕草根法线朝向角色目标或当前摄像机。适合远距离面片草，不建议对完整模型草开启。"));
+
+            y += line + spacing;
+            lineRect.y = y;
+            using (new EditorGUI.DisabledScope(!faceTarget.boolValue))
+            {
+                EditorGUI.PropertyField(
+                    lineRect,
+                    faceTargetRotationOffset,
+                    new GUIContent(
+                        "面向旋转偏移",
+                        "绕草根法线追加的角度。面片方向反了可先尝试 180，侧向错误可尝试 90 或 -90。"));
+            }
+
+            y += line + spacing;
+            lineRect.y = y;
+            EditorGUI.PropertyField(
+                lineRect,
+                overheadBend,
+                new GUIContent(
+                    "启用俯视弯曲",
+                    "相机升到草场上方时弯曲草叶上部，减少远处面片草的硬侧边。"));
+
+            y += line + spacing;
+            lineRect.y = y;
+            using (new EditorGUI.DisabledScope(!overheadBend.boolValue))
+            {
+                EditorGUI.PropertyField(
+                    lineRect,
+                    overheadBendAngle,
+                    new GUIContent("最大弯曲角", "俯视达到完全生效角度时，草叶顶部弯曲的角度。"));
+            }
+
+            y += line + spacing;
+            lineRect.y = y;
+            using (new EditorGUI.DisabledScope(!overheadBend.boolValue))
+            {
+                EditorGUI.PropertyField(
+                    lineRect,
+                    overheadBendStartAngle,
+                    new GUIContent("开始俯视角", "相机仰角达到该值后开始弯曲。"));
+            }
+
+            y += line + spacing;
+            lineRect.y = y;
+            using (new EditorGUI.DisabledScope(!overheadBend.boolValue))
+            {
+                EditorGUI.PropertyField(
+                    lineRect,
+                    overheadBendEndAngle,
+                    new GUIContent("完全生效角", "相机仰角达到该值时使用完整弯曲角度。"));
+            }
+
+            y += line + spacing;
             lineRect.y = y;
             EditorGUI.PropertyField(lineRect, shadowCasting, new GUIContent("投射阴影"));
 
-            y += line + 2f;
+            y += line + spacing;
             lineRect.y = y;
             EditorGUI.PropertyField(lineRect, receiveShadows, new GUIContent("接收阴影"));
         }

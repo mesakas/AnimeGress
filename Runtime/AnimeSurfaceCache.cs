@@ -42,6 +42,7 @@ namespace Enlyn.Grass
 
         private static readonly int StampMaskId = Shader.PropertyToID("_AnimeSurfaceStampMask");
         private static readonly int StampParamsId = Shader.PropertyToID("_AnimeSurfaceStampParams");
+        private static readonly int StampWorldToLocalId = Shader.PropertyToID("_AnimeSurfaceStampWorldToLocal");
         private static readonly int StampDataTextureId = Shader.PropertyToID("_AnimeSurfaceStampDataTexture");
         private static readonly int StampColorTextureId = Shader.PropertyToID("_AnimeSurfaceStampColorTexture");
 
@@ -575,8 +576,8 @@ namespace Enlyn.Grass
             RenderTargetIdentifier maskTarget)
         {
             lastStampCount = 0;
-            IReadOnlyList<AnimeSurfaceCacheStamp> stamps = AnimeSurfaceCacheStamp.ActiveStamps;
-            if (stamps.Count == 0)
+            IReadOnlyList<GressVolume> volumes = GressVolume.ActiveVolumes;
+            if (volumes.Count == 0)
             {
                 return;
             }
@@ -585,26 +586,29 @@ namespace Enlyn.Grass
             commandBuffer.SetViewProjectionMatrices(viewMatrix, projectionMatrix);
             commandBuffer.SetGlobalTexture(StampDataTextureId, dataTexture);
             commandBuffer.SetGlobalTexture(StampColorTextureId, colorTexture);
-            for (int i = 0; i < stamps.Count; i++)
+            for (int i = 0; i < volumes.Count; i++)
             {
-                AnimeSurfaceCacheStamp stamp = stamps[i];
-                if (stamp == null
-                    || !stamp.isActiveAndEnabled
-                    || !stamp.ShouldRender
-                    || !cacheBounds.Intersects(stamp.WorldBounds))
+                GressVolume volume = volumes[i];
+                Vector4 stampMask = volume != null ? volume.SurfaceMask : Vector4.zero;
+                if (volume == null
+                    || !volume.isActiveAndEnabled
+                    || !volume.ShouldRender
+                    || stampMask.sqrMagnitude <= 0.000001f
+                    || !cacheBounds.Intersects(volume.WorldBounds))
                 {
                     continue;
                 }
 
-                commandBuffer.SetGlobalVector(StampMaskId, stamp.SurfaceMask);
+                commandBuffer.SetGlobalVector(StampMaskId, stampMask);
                 commandBuffer.SetGlobalVector(
                     StampParamsId,
                     new Vector4(
-                        stamp.Shape == AnimeSurfaceCacheStampShape.Sphere ? 0f : 1f,
-                        stamp.Hardness,
-                        stamp.transform.position.y,
-                        2f / Mathf.Max(0.01f, stamp.Height)));
-                commandBuffer.DrawMesh(stampMesh, stamp.LocalToWorldMatrix, captureMaterial, 0, 1);
+                        volume.Shape == GressVolumeShape.Sphere ? 0f : 1f,
+                        volume.Hardness,
+                        0f,
+                        0f));
+                commandBuffer.SetGlobalMatrix(StampWorldToLocalId, volume.WorldToLocalMatrix);
+                commandBuffer.DrawMesh(stampMesh, volume.StampDrawMatrix, captureMaterial, 0, 1);
                 lastStampCount++;
             }
         }

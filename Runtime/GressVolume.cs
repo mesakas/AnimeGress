@@ -1,11 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Scripting.APIUpdating;
 using UnityEngine.Serialization;
 
 namespace Enlyn.Grass
 {
-    public enum AnimeSurfaceCacheStampShape
+    [MovedFrom(true, sourceNamespace: "Enlyn.Grass", sourceAssembly: "Ming.AnimeGress.Runtime", sourceClassName: "AnimeSurfaceCacheStampShape")]
+    public enum GressVolumeShape
     {
         Sphere,
         Box
@@ -13,26 +15,38 @@ namespace Enlyn.Grass
 
     [ExecuteAlways]
     [DisallowMultipleComponent]
-    public sealed class AnimeSurfaceCacheStamp : MonoBehaviour
+    [AddComponentMenu("AnimeGress/GressVolume")]
+    [MovedFrom(true, sourceNamespace: "Enlyn.Grass", sourceAssembly: "Ming.AnimeGress.Runtime", sourceClassName: "AnimeSurfaceCacheStamp")]
+    public sealed class GressVolume : MonoBehaviour
     {
+        private const int CurrentSerializationVersion = 1;
         public const int MaxGrassInteractionVolumes = 16;
-        private static readonly List<AnimeSurfaceCacheStamp> ActiveStampList = new List<AnimeSurfaceCacheStamp>();
+        private static readonly List<GressVolume> ActiveVolumeList = new List<GressVolume>();
         private static readonly int InteractionVolumeCountId = Shader.PropertyToID("_EnlynGrassInteractionVolumeCount");
         private static readonly int InteractionVolumeCenterShapeId = Shader.PropertyToID("_EnlynGrassInteractionVolumeCenterShape");
-        private static readonly int InteractionVolumeHalfSizeStrengthId = Shader.PropertyToID("_EnlynGrassInteractionVolumeHalfSizeStrength");
-        private static readonly int InteractionVolumeRotationParamsId = Shader.PropertyToID("_EnlynGrassInteractionVolumeRotationParams");
+        private static readonly int InteractionVolumeParamsId = Shader.PropertyToID("_EnlynGrassInteractionVolumeParams");
+        private static readonly int InteractionVolumeExclusionParamsId = Shader.PropertyToID("_EnlynGrassInteractionVolumeExclusionParams");
+        private static readonly int InteractionVolumeWorldToLocal0Id = Shader.PropertyToID("_EnlynGrassInteractionVolumeWorldToLocal0");
+        private static readonly int InteractionVolumeWorldToLocal1Id = Shader.PropertyToID("_EnlynGrassInteractionVolumeWorldToLocal1");
+        private static readonly int InteractionVolumeWorldToLocal2Id = Shader.PropertyToID("_EnlynGrassInteractionVolumeWorldToLocal2");
         private static readonly Vector4[] InteractionVolumeCenterShape = new Vector4[MaxGrassInteractionVolumes];
-        private static readonly Vector4[] InteractionVolumeHalfSizeStrength = new Vector4[MaxGrassInteractionVolumes];
-        private static readonly Vector4[] InteractionVolumeRotationParams = new Vector4[MaxGrassInteractionVolumes];
+        private static readonly Vector4[] InteractionVolumeParams = new Vector4[MaxGrassInteractionVolumes];
+        private static readonly Vector4[] InteractionVolumeExclusionParams = new Vector4[MaxGrassInteractionVolumes];
+        private static readonly Vector4[] InteractionVolumeWorldToLocal0 = new Vector4[MaxGrassInteractionVolumes];
+        private static readonly Vector4[] InteractionVolumeWorldToLocal1 = new Vector4[MaxGrassInteractionVolumes];
+        private static readonly Vector4[] InteractionVolumeWorldToLocal2 = new Vector4[MaxGrassInteractionVolumes];
 
         [SerializeField]
-        private AnimeSurfaceCacheStampShape shape = AnimeSurfaceCacheStampShape.Sphere;
+        private GressVolumeShape shape = GressVolumeShape.Sphere;
 
-        [SerializeField]
+        [SerializeField, HideInInspector]
         private Vector2 size = new Vector2(2f, 2f);
 
-        [SerializeField, Min(0.01f)]
+        [SerializeField, HideInInspector]
         private float height = 2f;
+
+        [SerializeField, HideInInspector]
+        private int serializationVersion;
 
         [SerializeField, Range(0f, 1f)]
         private float hardness = 0.7f;
@@ -48,6 +62,9 @@ namespace Enlyn.Grass
 
         [SerializeField, Range(0f, 1f)]
         private float exclusion;
+
+        [SerializeField]
+        private bool realtimeExclusion;
 
         [SerializeField]
         private bool repelGrass = true;
@@ -73,55 +90,69 @@ namespace Enlyn.Grass
 
         private Matrix4x4 lastLocalToWorld;
         private Vector4 lastMask;
-        private Vector2 lastSize;
-        private float lastHeight;
-        private AnimeSurfaceCacheStampShape lastShape;
+        private GressVolumeShape lastShape;
         private float lastHardness;
         private Vector4 lastGrassInteraction;
+        private Vector4 lastExclusionInteraction;
 
-        internal static IReadOnlyList<AnimeSurfaceCacheStamp> ActiveStamps => ActiveStampList;
-        public AnimeSurfaceCacheStampShape Shape => shape;
-        public Vector2 Size => size;
-        public float Height => height;
-        public Vector3 VolumeSize => new Vector3(size.x, height, size.y);
+        internal static IReadOnlyList<GressVolume> ActiveVolumes => ActiveVolumeList;
+        public GressVolumeShape Shape => shape;
         public float Hardness => hardness;
-        public Vector4 SurfaceMask => new Vector4(0f, 0f, 0f, exclusion);
+        public Vector4 SurfaceMask => new Vector4(
+            0f,
+            0f,
+            0f,
+            UsesRealtimeExclusion ? 0f : exclusion);
         public bool RepelGrass => repelGrass;
         public float GrassRepulsionStrength => grassRepulsionStrength;
         public float GrassRepulsionFalloff => grassRepulsionFalloff;
         public float GrassRepulsionHeightStart => grassRepulsionHeightStart;
         public float Exclusion => exclusion;
+        public bool RealtimeExclusion => realtimeExclusion;
+        public bool UsesRealtimeExclusion => realtimeExclusion || GetComponentInParent<Camera>() != null;
         public bool ShowWhenUnselected => showWhenUnselected;
         public bool ShouldRender => Application.isPlaying || renderInEditMode;
-        public Matrix4x4 LocalToWorldMatrix => Matrix4x4.TRS(
-            transform.position,
-            Quaternion.Euler(0f, transform.eulerAngles.y, 0f),
-            new Vector3(size.x, 1f, size.y));
+        public Matrix4x4 WorldToLocalMatrix => transform.worldToLocalMatrix;
+        public Matrix4x4 StampDrawMatrix
+        {
+            get
+            {
+                Bounds bounds = WorldBounds;
+                return Matrix4x4.TRS(
+                    bounds.center,
+                    Quaternion.identity,
+                    new Vector3(bounds.size.x, 1f, bounds.size.z));
+            }
+        }
         public Bounds WorldBounds
         {
             get
             {
-                Vector3 halfSize = VolumeSize * 0.5f;
-                Quaternion yaw = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
-                Vector3 right = yaw * Vector3.right;
-                Vector3 forward = yaw * Vector3.forward;
+                Matrix4x4 matrix = transform.localToWorldMatrix;
                 Vector3 extents = new Vector3(
-                    Mathf.Abs(right.x) * halfSize.x + Mathf.Abs(forward.x) * halfSize.z,
-                    halfSize.y,
-                    Mathf.Abs(right.z) * halfSize.x + Mathf.Abs(forward.z) * halfSize.z);
-                return new Bounds(transform.position, extents * 2f);
+                    (Mathf.Abs(matrix.m00) + Mathf.Abs(matrix.m01) + Mathf.Abs(matrix.m02)) * 0.5f,
+                    (Mathf.Abs(matrix.m10) + Mathf.Abs(matrix.m11) + Mathf.Abs(matrix.m12)) * 0.5f,
+                    (Mathf.Abs(matrix.m20) + Mathf.Abs(matrix.m21) + Mathf.Abs(matrix.m22)) * 0.5f);
+                return new Bounds(matrix.MultiplyPoint3x4(Vector3.zero), extents * 2f);
             }
+        }
+
+        private void Reset()
+        {
+            serializationVersion = CurrentSerializationVersion;
         }
 
         private void OnEnable()
         {
-            if (!ActiveStampList.Contains(this))
+            UpgradeSerializedData();
+            EnsureValidTransformScale();
+            if (!ActiveVolumeList.Contains(this))
             {
-                ActiveStampList.Add(this);
+                ActiveVolumeList.Add(this);
             }
 
             StoreState();
-            if (exclusion > 0.0001f)
+            if (SurfaceMask.w > 0.0001f)
             {
                 AnimeSurfaceCache.NotifyChanged(WorldBounds);
             }
@@ -130,7 +161,7 @@ namespace Enlyn.Grass
 
         private void OnDisable()
         {
-            ActiveStampList.Remove(this);
+            ActiveVolumeList.Remove(this);
             if (exclusion > 0.0001f || lastMask.w > 0.0001f)
             {
                 AnimeSurfaceCache.RequestAllRefresh();
@@ -141,9 +172,8 @@ namespace Enlyn.Grass
         private void OnValidate()
         {
             bool previouslyAffectedCache = lastMask.w > 0.0001f;
-            size.x = Mathf.Max(0.01f, size.x);
-            size.y = Mathf.Max(0.01f, size.y);
-            height = Mathf.Max(0.01f, height);
+            UpgradeSerializedData();
+            EnsureValidTransformScale();
             hardness = Mathf.Clamp01(hardness);
             wetness = Mathf.Clamp01(wetness);
             snow = Mathf.Clamp01(snow);
@@ -165,14 +195,17 @@ namespace Enlyn.Grass
             Matrix4x4 currentLocalToWorld = transform.localToWorldMatrix;
             Vector4 currentMask = SurfaceMask;
             Vector4 currentGrassInteraction = GetGrassInteractionState();
+            Vector4 currentExclusionInteraction = GetGrassExclusionState();
             bool volumeChanged = currentLocalToWorld != lastLocalToWorld
-                || size != lastSize
-                || !Mathf.Approximately(height, lastHeight)
                 || shape != lastShape
                 || !Mathf.Approximately(hardness, lastHardness);
             bool maskChanged = currentMask != lastMask;
             bool interactionChanged = currentGrassInteraction != lastGrassInteraction;
-            if (!volumeChanged && !maskChanged && !interactionChanged)
+            bool exclusionInteractionChanged = currentExclusionInteraction != lastExclusionInteraction;
+            if (!volumeChanged
+                && !maskChanged
+                && !interactionChanged
+                && !exclusionInteractionChanged)
             {
                 return;
             }
@@ -190,48 +223,50 @@ namespace Enlyn.Grass
         {
             lastLocalToWorld = transform.localToWorldMatrix;
             lastMask = SurfaceMask;
-            lastSize = size;
-            lastHeight = height;
             lastShape = shape;
             lastHardness = hardness;
             lastGrassInteraction = GetGrassInteractionState();
+            lastExclusionInteraction = GetGrassExclusionState();
         }
 
         internal static void ApplyGrassInteractionGlobals(CommandBuffer commandBuffer = null)
         {
             int volumeCount = 0;
-            for (int stampIndex = 0;
-                 stampIndex < ActiveStampList.Count && volumeCount < MaxGrassInteractionVolumes;
-                 stampIndex++)
+            for (int volumeIndex = 0;
+                 volumeIndex < ActiveVolumeList.Count && volumeCount < MaxGrassInteractionVolumes;
+                 volumeIndex++)
             {
-                AnimeSurfaceCacheStamp stamp = ActiveStampList[stampIndex];
-                if (stamp == null
-                    || !stamp.isActiveAndEnabled
-                    || !stamp.ShouldRender
-                    || !stamp.repelGrass
-                    || stamp.grassRepulsionStrength <= 0f)
+                GressVolume volume = ActiveVolumeList[volumeIndex];
+                bool usesRealtimeExclusion = volume != null && volume.UsesRealtimeExclusion;
+                if (volume == null
+                    || !volume.isActiveAndEnabled
+                    || !volume.ShouldRender
+                    || (!volume.repelGrass || volume.grassRepulsionStrength <= 0f)
+                    && (!usesRealtimeExclusion || volume.exclusion <= 0f))
                 {
                     continue;
                 }
 
-                Vector3 center = stamp.transform.position;
-                Vector3 halfSize = stamp.VolumeSize * 0.5f;
-                float yawRadians = stamp.transform.eulerAngles.y * Mathf.Deg2Rad;
+                Vector3 center = volume.transform.position;
+                Matrix4x4 worldToLocal = volume.transform.worldToLocalMatrix;
                 InteractionVolumeCenterShape[volumeCount] = new Vector4(
                     center.x,
                     center.y,
                     center.z,
-                    stamp.shape == AnimeSurfaceCacheStampShape.Sphere ? 0f : 1f);
-                InteractionVolumeHalfSizeStrength[volumeCount] = new Vector4(
-                    Mathf.Max(0.005f, halfSize.x),
-                    Mathf.Max(0.005f, halfSize.y),
-                    Mathf.Max(0.005f, halfSize.z),
-                    stamp.grassRepulsionStrength);
-                InteractionVolumeRotationParams[volumeCount] = new Vector4(
-                    Mathf.Cos(yawRadians),
-                    Mathf.Sin(yawRadians),
-                    stamp.grassRepulsionFalloff,
-                    stamp.grassRepulsionHeightStart);
+                    volume.shape == GressVolumeShape.Sphere ? 0f : 1f);
+                InteractionVolumeParams[volumeCount] = new Vector4(
+                    volume.repelGrass ? volume.grassRepulsionStrength : 0f,
+                    volume.grassRepulsionFalloff,
+                    volume.grassRepulsionHeightStart,
+                    0f);
+                InteractionVolumeExclusionParams[volumeCount] = new Vector4(
+                    usesRealtimeExclusion ? volume.exclusion : 0f,
+                    volume.hardness,
+                    0f,
+                    0f);
+                InteractionVolumeWorldToLocal0[volumeCount] = worldToLocal.GetRow(0);
+                InteractionVolumeWorldToLocal1[volumeCount] = worldToLocal.GetRow(1);
+                InteractionVolumeWorldToLocal2[volumeCount] = worldToLocal.GetRow(2);
                 volumeCount++;
             }
 
@@ -239,16 +274,67 @@ namespace Enlyn.Grass
             {
                 commandBuffer.SetGlobalFloat(InteractionVolumeCountId, volumeCount);
                 commandBuffer.SetGlobalVectorArray(InteractionVolumeCenterShapeId, InteractionVolumeCenterShape);
-                commandBuffer.SetGlobalVectorArray(InteractionVolumeHalfSizeStrengthId, InteractionVolumeHalfSizeStrength);
-                commandBuffer.SetGlobalVectorArray(InteractionVolumeRotationParamsId, InteractionVolumeRotationParams);
+                commandBuffer.SetGlobalVectorArray(InteractionVolumeParamsId, InteractionVolumeParams);
+                commandBuffer.SetGlobalVectorArray(InteractionVolumeExclusionParamsId, InteractionVolumeExclusionParams);
+                commandBuffer.SetGlobalVectorArray(InteractionVolumeWorldToLocal0Id, InteractionVolumeWorldToLocal0);
+                commandBuffer.SetGlobalVectorArray(InteractionVolumeWorldToLocal1Id, InteractionVolumeWorldToLocal1);
+                commandBuffer.SetGlobalVectorArray(InteractionVolumeWorldToLocal2Id, InteractionVolumeWorldToLocal2);
             }
             else
             {
                 Shader.SetGlobalFloat(InteractionVolumeCountId, volumeCount);
                 Shader.SetGlobalVectorArray(InteractionVolumeCenterShapeId, InteractionVolumeCenterShape);
-                Shader.SetGlobalVectorArray(InteractionVolumeHalfSizeStrengthId, InteractionVolumeHalfSizeStrength);
-                Shader.SetGlobalVectorArray(InteractionVolumeRotationParamsId, InteractionVolumeRotationParams);
+                Shader.SetGlobalVectorArray(InteractionVolumeParamsId, InteractionVolumeParams);
+                Shader.SetGlobalVectorArray(InteractionVolumeExclusionParamsId, InteractionVolumeExclusionParams);
+                Shader.SetGlobalVectorArray(InteractionVolumeWorldToLocal0Id, InteractionVolumeWorldToLocal0);
+                Shader.SetGlobalVectorArray(InteractionVolumeWorldToLocal1Id, InteractionVolumeWorldToLocal1);
+                Shader.SetGlobalVectorArray(InteractionVolumeWorldToLocal2Id, InteractionVolumeWorldToLocal2);
             }
+        }
+
+        private void UpgradeSerializedData()
+        {
+            if (serializationVersion >= CurrentSerializationVersion)
+            {
+                return;
+            }
+
+            Vector3 parentScale = transform.parent != null
+                ? Abs(transform.parent.lossyScale)
+                : Vector3.one;
+            transform.localScale = new Vector3(
+                Mathf.Max(0.01f, size.x) / Mathf.Max(0.0001f, parentScale.x),
+                Mathf.Max(0.01f, height) / Mathf.Max(0.0001f, parentScale.y),
+                Mathf.Max(0.01f, size.y) / Mathf.Max(0.0001f, parentScale.z));
+            serializationVersion = CurrentSerializationVersion;
+        }
+
+        private void EnsureValidTransformScale()
+        {
+            Vector3 localScale = transform.localScale;
+            Vector3 validScale = new Vector3(
+                ClampScale(localScale.x),
+                ClampScale(localScale.y),
+                ClampScale(localScale.z));
+            if (localScale != validScale)
+            {
+                transform.localScale = validScale;
+            }
+        }
+
+        private static float ClampScale(float value)
+        {
+            if (Mathf.Abs(value) >= 0.01f)
+            {
+                return value;
+            }
+
+            return value < 0f ? -0.01f : 0.01f;
+        }
+
+        private static Vector3 Abs(Vector3 value)
+        {
+            return new Vector3(Mathf.Abs(value.x), Mathf.Abs(value.y), Mathf.Abs(value.z));
         }
 
         private Vector4 GetGrassInteractionState()
@@ -258,6 +344,15 @@ namespace Enlyn.Grass
                 grassRepulsionStrength,
                 grassRepulsionFalloff,
                 grassRepulsionHeightStart);
+        }
+
+        private Vector4 GetGrassExclusionState()
+        {
+            return new Vector4(
+                UsesRealtimeExclusion ? 1f : 0f,
+                exclusion,
+                hardness,
+                0f);
         }
 
         private void OnDrawGizmos()
@@ -319,10 +414,7 @@ namespace Enlyn.Grass
 
         private Matrix4x4 GetVolumeGizmoMatrix(float scale)
         {
-            return Matrix4x4.TRS(
-                transform.position,
-                Quaternion.Euler(0f, transform.eulerAngles.y, 0f),
-                VolumeSize * scale);
+            return transform.localToWorldMatrix * Matrix4x4.Scale(Vector3.one * scale);
         }
 
         private Color GetOuterGizmoColor()
@@ -347,7 +439,7 @@ namespace Enlyn.Grass
 
         private void DrawVolume(bool wireframe)
         {
-            if (shape == AnimeSurfaceCacheStampShape.Sphere)
+            if (shape == GressVolumeShape.Sphere)
             {
                 if (wireframe)
                 {

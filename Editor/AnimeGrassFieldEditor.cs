@@ -10,49 +10,125 @@ namespace Enlyn.Grass.Editor
     public sealed class AnimeGrassFieldEditor : UnityEditor.Editor
     {
         private SerializedProperty prototypes;
+        private SerializedProperty prototypeVisibility;
         private SerializedProperty chunkSize;
         private SerializedProperty chunkBoundsPadding;
         private SerializedProperty frustumCulling;
         private SerializedProperty drawInEditMode;
         private SerializedProperty ignoreLodDistanceInEditMode;
         private SerializedProperty cameraOverride;
+        private SerializedProperty facingTargetOverride;
         private SerializedProperty renderingLayer;
         private SerializedProperty drawInstanceGizmos;
         private SerializedProperty gizmoDrawLimit;
         private SerializedProperty gizmoSize;
         private SerializedProperty gizmoColor;
         private ReorderableList prototypeList;
+        private int[] prototypeInstanceCounts = new int[0];
+        private int pendingDeletePrototypeIndex = -1;
 
         private void OnEnable()
         {
             prototypes = serializedObject.FindProperty("prototypes");
+            prototypeVisibility = serializedObject.FindProperty("prototypeVisibility");
             chunkSize = serializedObject.FindProperty("chunkSize");
             chunkBoundsPadding = serializedObject.FindProperty("chunkBoundsPadding");
             frustumCulling = serializedObject.FindProperty("frustumCulling");
             drawInEditMode = serializedObject.FindProperty("drawInEditMode");
             ignoreLodDistanceInEditMode = serializedObject.FindProperty("ignoreLodDistanceInEditMode");
             cameraOverride = serializedObject.FindProperty("cameraOverride");
+            facingTargetOverride = serializedObject.FindProperty("facingTargetOverride");
             renderingLayer = serializedObject.FindProperty("renderingLayer");
             drawInstanceGizmos = serializedObject.FindProperty("drawInstanceGizmos");
             gizmoDrawLimit = serializedObject.FindProperty("gizmoDrawLimit");
             gizmoSize = serializedObject.FindProperty("gizmoSize");
             gizmoColor = serializedObject.FindProperty("gizmoColor");
 
-            prototypeList = new ReorderableList(serializedObject, prototypes, true, true, true, true);
-            prototypeList.drawHeaderCallback = rect => EditorGUI.LabelField(rect, "草类型列表");
+            prototypeList = new ReorderableList(serializedObject, prototypes, false, true, true, false);
+            prototypeList.drawHeaderCallback = rect => EditorGUI.LabelField(
+                rect,
+                "草类型管理  ·  共 " + GetTotalInstanceCount().ToString("N0") + " 株");
             prototypeList.elementHeight = EditorGUIUtility.singleLineHeight + 4f;
             prototypeList.drawElementCallback = (rect, index, active, focused) =>
             {
                 SerializedProperty element = prototypes.GetArrayElementAtIndex(index);
                 rect.y += 2f;
                 rect.height = EditorGUIUtility.singleLineHeight;
-                EditorGUI.PropertyField(rect, element, new GUIContent("草类型 " + index));
+
+                const float buttonWidth = 24f;
+                const float countWidth = 76f;
+                const float spacing = 3f;
+                Rect visibilityRect = new Rect(rect.x, rect.y, buttonWidth, rect.height);
+                Rect deleteRect = new Rect(rect.xMax - buttonWidth, rect.y, buttonWidth, rect.height);
+                Rect countRect = new Rect(
+                    deleteRect.x - spacing - countWidth,
+                    rect.y,
+                    countWidth,
+                    rect.height);
+                Rect objectRect = new Rect(
+                    visibilityRect.xMax + spacing,
+                    rect.y,
+                    Mathf.Max(20f, countRect.x - spacing - visibilityRect.xMax - spacing),
+                    rect.height);
+
+                SerializedProperty visibility = index < prototypeVisibility.arraySize
+                    ? prototypeVisibility.GetArrayElementAtIndex(index)
+                    : null;
+                bool isVisible = visibility == null || visibility.boolValue;
+                if (GUI.Button(
+                    visibilityRect,
+                    CreateIconContent(
+                        isVisible ? "隐藏这个草类型" : "显示这个草类型",
+                        isVisible ? "O" : "-",
+                        isVisible ? "d_animationvisibilitytoggleon" : "d_animationvisibilitytoggleoff",
+                        isVisible ? "animationvisibilitytoggleon" : "animationvisibilitytoggleoff")))
+                {
+                    if (visibility != null)
+                    {
+                        visibility.boolValue = !isVisible;
+                    }
+                }
+
+                EditorGUI.PropertyField(objectRect, element, GUIContent.none);
+                int count = index < prototypeInstanceCounts.Length
+                    ? prototypeInstanceCounts[index]
+                    : 0;
+                EditorGUI.LabelField(countRect, count.ToString("N0") + " 株", EditorStyles.miniLabel);
+
+                using (new EditorGUI.DisabledScope(count == 0))
+                {
+                    if (GUI.Button(
+                        deleteRect,
+                        CreateIconContent(
+                            "删除这个类型的全部已铺草实例",
+                            "X",
+                            "d_TreeEditor.Trash",
+                            "TreeEditor.Trash",
+                            "d_P4_DeletedLocal",
+                            "P4_DeletedLocal")))
+                    {
+                        pendingDeletePrototypeIndex = index;
+                    }
+                }
+            };
+            prototypeList.onAddCallback = list =>
+            {
+                int newIndex = prototypes.arraySize;
+                prototypes.InsertArrayElementAtIndex(newIndex);
+                prototypes.GetArrayElementAtIndex(newIndex).objectReferenceValue = null;
+                prototypeVisibility.InsertArrayElementAtIndex(newIndex);
+                prototypeVisibility.GetArrayElementAtIndex(newIndex).boolValue = true;
+                list.index = newIndex;
             };
         }
 
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
+            SyncPrototypeVisibility();
+
+            AnimeGrassField field = (AnimeGrassField)target;
+            UpdatePrototypeInstanceCounts(field);
 
             prototypeList.DoLayoutList();
 
@@ -61,13 +137,18 @@ namespace Enlyn.Grass.Editor
             EditorGUILayout.PropertyField(chunkSize, new GUIContent("分块大小", "草场按 XZ 平面分块。16-32 通常比较合适。"));
             EditorGUILayout.PropertyField(chunkBoundsPadding, new GUIContent("分块包围盒扩展", "草很高或风摆动幅度大时调大，避免视锥剔除过早。"));
             EditorGUILayout.PropertyField(frustumCulling, new GUIContent("启用视锥剔除", "关闭摄像机视野外的草块渲染。"));
-            EditorGUILayout.PropertyField(drawInEditMode, new GUIContent("编辑模式显示", "在非运行状态下也渲染草，方便场景编辑。"));
+            EditorGUILayout.PropertyField(drawInEditMode, new GUIContent("编辑模式显示", "在非运行状态下使用 GPU Instancing 渲染草，方便场景编辑。"));
             EditorGUILayout.PropertyField(ignoreLodDistanceInEditMode, new GUIContent("编辑模式忽略 LOD 距离", "只影响 Scene 视图编辑预览。开启后编辑时总是使用第一个可渲染 LOD，运行时仍按 LOD 距离显示。"));
             EditorGUILayout.PropertyField(
                 cameraOverride,
                 new GUIContent(
                     "游戏 LOD 参考摄像机",
                     "可选。为空时每个相机使用自身位置计算 LOD；指定后只作为游戏相机的 LOD 距离参考，不会限制哪些相机能够看到草。Scene 视图始终使用自己的摄像机。"));
+            EditorGUILayout.PropertyField(
+                facingTargetOverride,
+                new GUIContent(
+                    "草面片朝向目标",
+                    "可选。启用“始终面向观察目标”的 LOD 会朝向该角色或物体；为空时朝向当前渲染相机。Scene 视图始终朝向 Scene 相机。"));
             EditorGUILayout.PropertyField(renderingLayer, new GUIContent("渲染 Layer", "传给 Graphics.DrawMeshInstanced 的 layer。"));
 
             EditorGUILayout.Space(8f);
@@ -77,9 +158,13 @@ namespace Enlyn.Grass.Editor
             EditorGUILayout.PropertyField(gizmoSize, new GUIContent("位置点大小"));
             EditorGUILayout.PropertyField(gizmoColor, new GUIContent("位置点颜色"));
 
-            serializedObject.ApplyModifiedProperties();
+            if (serializedObject.ApplyModifiedProperties())
+            {
+                field.MarkDirty();
+                SceneView.RepaintAll();
+            }
 
-            AnimeGrassField field = (AnimeGrassField)target;
+            HandlePendingPrototypeDelete(field);
             DrawPrototypeWarnings(field);
 
             EditorGUILayout.Space(8f);
@@ -126,8 +211,10 @@ namespace Enlyn.Grass.Editor
             EditorGUILayout.LabelField("提交绘制实例数", field.LastQueuedInstanceCount.ToString());
             EditorGUILayout.LabelField("可渲染 LOD 检查数", field.LastRenderableLodCount.ToString());
             EditorGUILayout.LabelField("跳过：草类型无效", field.LastSkippedInvalidPrototypeCount.ToString());
+            EditorGUILayout.LabelField("跳过：草类型已隐藏", field.LastSkippedHiddenPrototypeCount.ToString());
             EditorGUILayout.LabelField("跳过：LOD/Mesh/材质缺失", field.LastSkippedMissingLodCount.ToString());
             EditorGUILayout.LabelField("跳过：距离淡出", field.LastSkippedDistanceCount.ToString());
+            EditorGUILayout.LabelField("跳过：距离密度", field.LastSkippedDensityCount.ToString());
             EditorGUILayout.LabelField("使用占位 Mesh 次数", field.LastFallbackMeshCount.ToString());
             if (field.TryGetInstancesBounds(out Bounds grassBounds))
             {
@@ -280,8 +367,10 @@ namespace Enlyn.Grass.Editor
             builder.AppendLine("检查实例数: " + field.LastEvaluatedInstanceCount);
             builder.AppendLine("提交绘制实例数: " + field.LastQueuedInstanceCount);
             builder.AppendLine("跳过无效草类型: " + field.LastSkippedInvalidPrototypeCount);
+            builder.AppendLine("跳过隐藏草类型: " + field.LastSkippedHiddenPrototypeCount);
             builder.AppendLine("跳过缺失 LOD/Mesh/材质: " + field.LastSkippedMissingLodCount);
             builder.AppendLine("跳过距离淡出: " + field.LastSkippedDistanceCount);
+            builder.AppendLine("跳过距离密度: " + field.LastSkippedDensityCount);
             builder.AppendLine("使用占位 Mesh 次数: " + field.LastFallbackMeshCount);
 
             if (field.TryGetInstancesBounds(out Bounds bounds))
@@ -330,6 +419,116 @@ namespace Enlyn.Grass.Editor
             }
 
             Debug.Log(builder.ToString(), field);
+        }
+
+        private void SyncPrototypeVisibility()
+        {
+            while (prototypeVisibility.arraySize < prototypes.arraySize)
+            {
+                int index = prototypeVisibility.arraySize;
+                prototypeVisibility.InsertArrayElementAtIndex(index);
+                prototypeVisibility.GetArrayElementAtIndex(index).boolValue = true;
+            }
+
+            while (prototypeVisibility.arraySize > prototypes.arraySize)
+            {
+                prototypeVisibility.DeleteArrayElementAtIndex(prototypeVisibility.arraySize - 1);
+            }
+        }
+
+        private void UpdatePrototypeInstanceCounts(AnimeGrassField field)
+        {
+            int prototypeCount = field != null && field.Prototypes != null
+                ? field.Prototypes.Count
+                : 0;
+            if (prototypeInstanceCounts.Length != prototypeCount)
+            {
+                prototypeInstanceCounts = new int[prototypeCount];
+            }
+            else
+            {
+                for (int i = 0; i < prototypeInstanceCounts.Length; i++)
+                {
+                    prototypeInstanceCounts[i] = 0;
+                }
+            }
+
+            if (field == null || field.Instances == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < field.Instances.Count; i++)
+            {
+                int prototypeIndex = field.Instances[i].prototypeIndex;
+                if (prototypeIndex >= 0 && prototypeIndex < prototypeInstanceCounts.Length)
+                {
+                    prototypeInstanceCounts[prototypeIndex]++;
+                }
+            }
+        }
+
+        private int GetTotalInstanceCount()
+        {
+            int total = 0;
+            for (int i = 0; i < prototypeInstanceCounts.Length; i++)
+            {
+                total += prototypeInstanceCounts[i];
+            }
+
+            return total;
+        }
+
+        private void HandlePendingPrototypeDelete(AnimeGrassField field)
+        {
+            if (pendingDeletePrototypeIndex < 0)
+            {
+                return;
+            }
+
+            int prototypeIndex = pendingDeletePrototypeIndex;
+            pendingDeletePrototypeIndex = -1;
+            if (field == null || prototypeIndex >= field.Prototypes.Count)
+            {
+                return;
+            }
+
+            AnimeGrassPrototype prototype = field.Prototypes[prototypeIndex];
+            string prototypeName = prototype != null ? prototype.name : "草类型 " + prototypeIndex;
+            int count = field.GetPrototypeInstanceCount(prototypeIndex);
+            if (count == 0
+                || !EditorUtility.DisplayDialog(
+                    "删除该类型的草",
+                    "确定删除“" + prototypeName + "”的全部 " + count.ToString("N0") + " 株草吗？草类型配置会保留。",
+                    "删除",
+                    "取消"))
+            {
+                return;
+            }
+
+            Undo.RecordObject(field, "删除 " + prototypeName + " 的草实例");
+            field.RemoveInstancesOfPrototype(prototypeIndex);
+            EditorUtility.SetDirty(field);
+            UpdatePrototypeInstanceCounts(field);
+            SceneView.RepaintAll();
+            Repaint();
+        }
+
+        private static GUIContent CreateIconContent(
+            string tooltip,
+            string fallbackText,
+            params string[] iconNames)
+        {
+            for (int i = 0; i < iconNames.Length; i++)
+            {
+                GUIContent icon = EditorGUIUtility.IconContent(iconNames[i]);
+                if (icon != null && icon.image != null)
+                {
+                    return new GUIContent(icon.image, tooltip);
+                }
+            }
+
+            return new GUIContent(fallbackText, tooltip);
         }
     }
 

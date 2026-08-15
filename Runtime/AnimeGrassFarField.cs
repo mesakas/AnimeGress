@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Serialization;
 
 namespace Enlyn.Grass
 {
@@ -19,7 +20,13 @@ namespace Enlyn.Grass
         private static readonly int HeightParamsId = Shader.PropertyToID("_AnimeGrassFarHeightParams");
         private static readonly int DistanceParamsId = Shader.PropertyToID("_AnimeGrassFarDistanceParams");
         private static readonly int AppearanceParamsId = Shader.PropertyToID("_AnimeGrassFarAppearanceParams");
+        private static readonly int PatternParamsId = Shader.PropertyToID("_AnimeGrassFarPatternParams");
+        private static readonly int PatternTintId = Shader.PropertyToID("_AnimeGrassFarPatternTint");
+        private static readonly int PatternShadowColorId = Shader.PropertyToID("_AnimeGrassFarPatternShadowColor");
         private static readonly int DisturbanceParamsId = Shader.PropertyToID("_AnimeGrassFarDisturbanceParams");
+        private static readonly int RippleParamsId = Shader.PropertyToID("_AnimeGrassFarRippleParams");
+        private static readonly int ShadowColorId = Shader.PropertyToID("_AnimeGrassFarShadowColor");
+        private static readonly int LightingParamsId = Shader.PropertyToID("_AnimeGrassFarLightingParams");
 
         [SerializeField]
         private bool farFieldEnabled = true;
@@ -30,6 +37,12 @@ namespace Enlyn.Grass
         [SerializeField, Min(0.01f)]
         private float transitionEndDistance = 60f;
 
+        [SerializeField, Min(0f)]
+        private float fadeOutStartDistance = 180f;
+
+        [SerializeField, Min(0.01f)]
+        private float maximumDisplayDistance = 220f;
+
         [SerializeField, Range(64, 1024)]
         private int cacheResolution = 256;
 
@@ -39,14 +52,38 @@ namespace Enlyn.Grass
         [SerializeField, Range(0f, 0.95f)]
         private float coverageHardness = 0.55f;
 
+        [SerializeField, Range(0, 8)]
+        private int coverageHoleFillPixels = 3;
+
         [SerializeField]
         private Color colorMultiplier = Color.white;
+
+        [SerializeField]
+        private bool matchNearGrassColor = true;
 
         [SerializeField, Range(0f, 1f)]
         private float colorInfluence = 0.7f;
 
         [SerializeField, Range(0f, 1f)]
+        private float nearGrassLightingInfluence = 1f;
+
+        [SerializeField]
+        private bool surfacePatternEnabled = true;
+
+        [SerializeField]
+        private Vector2 surfacePatternDirection = new Vector2(1f, 0.2f);
+
+        [SerializeField]
+        private Color surfacePatternTint = new Color(0.72f, 0.95f, 1f, 1f);
+
+        [SerializeField, Range(0f, 1f)]
+        private float surfacePatternTintStrength = 0.18f;
+
+        [SerializeField, Range(0f, 1f)]
         private float pseudoShadowStrength = 0.18f;
+
+        [SerializeField, ColorUsage(false, false)]
+        private Color surfacePatternShadowColor = Color.black;
 
         [SerializeField, Range(0f, 1f)]
         private float pseudoShadowDisturbance = 0.55f;
@@ -57,14 +94,27 @@ namespace Enlyn.Grass
         [SerializeField, Min(0f)]
         private float pseudoShadowDriftSpeed = 0.6f;
 
+        [SerializeField, Range(0f, 1f)]
+        private float pseudoShadowWaveCurvature = 0.8f;
+
+        [SerializeField, Min(0.5f)]
+        private float pseudoShadowWaveSpacing = 9f;
+
+        [FormerlySerializedAs("pseudoShadowArcRadius")]
+        [SerializeField, Min(1f)]
+        private float pseudoShadowCurveScale = 20f;
+
         [SerializeField, Range(0f, 2f)]
         private float windTintResponse = 1f;
 
         [SerializeField, Min(0.05f)]
         private float surfaceHeightTolerance = 0.8f;
 
-        [SerializeField, Range(0f, 1f)]
-        private float minimumUpwardNormal = 0.35f;
+        [SerializeField, Range(0.5f, 1f)]
+        private float minimumUpwardNormal = 0.5f;
+
+        [SerializeField, Range(0.05f, 1f)]
+        private float surfaceFilterEdgeSoftness = 0.65f;
 
         [SerializeField]
         private bool previewInEditMode = true;
@@ -79,11 +129,15 @@ namespace Enlyn.Grass
         private bool dirty = true;
         private int cachedInstanceCount;
         private int cachedColorSignature;
+        private Color representativeShadowColor = new Color(0.55f, 0.65f, 0.48f, 1f);
+        private float representativeReceiveShadowStrength = 0.7f;
 
         private struct FarInstanceSample
         {
             public Vector3 position;
             public Color color;
+            public Color shadowColor;
+            public float receiveShadowStrength;
         }
 
         public bool FarFieldEnabled => farFieldEnabled;
@@ -115,17 +169,33 @@ namespace Enlyn.Grass
         {
             transitionStartDistance = Mathf.Max(0f, transitionStartDistance);
             transitionEndDistance = Mathf.Max(transitionStartDistance + 0.01f, transitionEndDistance);
+            fadeOutStartDistance = Mathf.Max(transitionEndDistance, fadeOutStartDistance);
+            maximumDisplayDistance = Mathf.Max(
+                fadeOutStartDistance + 0.01f,
+                maximumDisplayDistance);
             cacheResolution = Mathf.Clamp(Mathf.ClosestPowerOfTwo(cacheResolution), 64, 1024);
             coverageRadius = Mathf.Max(0.05f, coverageRadius);
             coverageHardness = Mathf.Clamp(coverageHardness, 0f, 0.95f);
+            coverageHoleFillPixels = Mathf.Clamp(coverageHoleFillPixels, 0, 8);
             colorInfluence = Mathf.Clamp01(colorInfluence);
+            nearGrassLightingInfluence = Mathf.Clamp01(nearGrassLightingInfluence);
+            if (surfacePatternDirection.sqrMagnitude <= 0.0001f)
+            {
+                surfacePatternDirection = Vector2.right;
+            }
+            surfacePatternTintStrength = Mathf.Clamp01(surfacePatternTintStrength);
             pseudoShadowStrength = Mathf.Clamp01(pseudoShadowStrength);
+            surfacePatternShadowColor.a = 1f;
             pseudoShadowDisturbance = Mathf.Clamp01(pseudoShadowDisturbance);
             pseudoShadowPatchSize = Mathf.Max(0.25f, pseudoShadowPatchSize);
             pseudoShadowDriftSpeed = Mathf.Max(0f, pseudoShadowDriftSpeed);
+            pseudoShadowWaveCurvature = Mathf.Clamp01(pseudoShadowWaveCurvature);
+            pseudoShadowWaveSpacing = Mathf.Max(0.5f, pseudoShadowWaveSpacing);
+            pseudoShadowCurveScale = Mathf.Max(1f, pseudoShadowCurveScale);
             windTintResponse = Mathf.Max(0f, windTintResponse);
             surfaceHeightTolerance = Mathf.Max(0.05f, surfaceHeightTolerance);
-            minimumUpwardNormal = Mathf.Clamp01(minimumUpwardNormal);
+            minimumUpwardNormal = Mathf.Clamp(minimumUpwardNormal, 0.5f, 1f);
+            surfaceFilterEdgeSoftness = Mathf.Clamp(surfaceFilterEdgeSoftness, 0.05f, 1f);
             dirty = true;
         }
 
@@ -180,6 +250,10 @@ namespace Enlyn.Grass
             transitionStartDistance = Mathf.Max(
                 0f,
                 farthestEndDistance - Mathf.Max(0.5f, matchingFadeDistance));
+            fadeOutStartDistance = Mathf.Max(transitionEndDistance, fadeOutStartDistance);
+            maximumDisplayDistance = Mathf.Max(
+                fadeOutStartDistance + 0.01f,
+                maximumDisplayDistance);
             return true;
         }
 
@@ -260,18 +334,51 @@ namespace Enlyn.Grass
                 DistanceParamsId,
                 new Vector4(
                     transitionStartDistance,
-                    transitionEndDistance,
+                    maximumDisplayDistance,
                     1f / Mathf.Max(0.01f, transitionEndDistance - transitionStartDistance),
-                    0f));
+                    1f / Mathf.Max(0.01f, maximumDisplayDistance - fadeOutStartDistance)));
             properties.SetVector(
                 AppearanceParamsId,
-                new Vector4(colorInfluence, pseudoShadowStrength, windTintResponse, minimumUpwardNormal));
+                new Vector4(
+                    matchNearGrassColor ? 1f : colorInfluence,
+                    surfacePatternEnabled ? pseudoShadowStrength : 0f,
+                    windTintResponse,
+                    minimumUpwardNormal));
+            Vector2 safePatternDirection = surfacePatternDirection.sqrMagnitude > 0.0001f
+                ? surfacePatternDirection.normalized
+                : Vector2.right;
+            properties.SetVector(
+                PatternParamsId,
+                new Vector4(
+                    safePatternDirection.x,
+                    safePatternDirection.y,
+                    surfacePatternEnabled ? 1f : 0f,
+                    pseudoShadowDriftSpeed));
+            Color patternTint = surfacePatternTint;
+            patternTint.a = surfacePatternEnabled ? surfacePatternTintStrength : 0f;
+            properties.SetColor(PatternTintId, patternTint);
+            properties.SetColor(PatternShadowColorId, surfacePatternShadowColor);
             properties.SetVector(
                 DisturbanceParamsId,
                 new Vector4(
                     pseudoShadowDisturbance,
                     1f / Mathf.Max(0.25f, pseudoShadowPatchSize),
-                    pseudoShadowDriftSpeed,
+                    0f,
+                    0f));
+            properties.SetVector(
+                RippleParamsId,
+                new Vector4(
+                    pseudoShadowWaveCurvature,
+                    2f * Mathf.PI / Mathf.Max(0.5f, pseudoShadowWaveSpacing),
+                    pseudoShadowCurveScale,
+                    0f));
+            properties.SetColor(ShadowColorId, representativeShadowColor);
+            properties.SetVector(
+                LightingParamsId,
+                new Vector4(
+                    matchNearGrassColor ? nearGrassLightingInfluence : 0f,
+                    representativeReceiveShadowStrength,
+                    0f,
                     0f));
             commandBuffer.DrawProcedural(
                 Matrix4x4.identity,
@@ -323,12 +430,19 @@ namespace Enlyn.Grass
             for (int instanceIndex = 0; instanceIndex < instances.Count; instanceIndex++)
             {
                 AnimeGrassInstance instance = instances[instanceIndex];
-                if (TryResolveInstanceColor(targetField, instance, out Color instanceFarColor))
+                if (TryResolveInstanceAppearance(
+                    targetField,
+                    instance,
+                    out Color instanceFarColor,
+                    out Color instanceShadowColor,
+                    out float instanceReceiveShadowStrength))
                 {
                     samples.Add(new FarInstanceSample
                     {
                         position = instance.position,
-                        color = instanceFarColor
+                        color = instanceFarColor,
+                        shadowColor = instanceShadowColor,
+                        receiveShadowStrength = instanceReceiveShadowStrength
                     });
                 }
             }
@@ -340,6 +454,19 @@ namespace Enlyn.Grass
                 dirty = false;
                 return false;
             }
+
+            Color shadowColorSum = Color.clear;
+            float receiveShadowStrengthSum = 0f;
+            for (int sampleIndex = 0; sampleIndex < samples.Count; sampleIndex++)
+            {
+                shadowColorSum += samples[sampleIndex].shadowColor;
+                receiveShadowStrengthSum += samples[sampleIndex].receiveShadowStrength;
+            }
+            float inverseSampleCount = 1f / samples.Count;
+            representativeShadowColor = shadowColorSum * inverseSampleCount;
+            representativeShadowColor.a = 1f;
+            representativeReceiveShadowStrength = Mathf.Clamp01(
+                receiveShadowStrengthSum * inverseSampleCount);
 
             int resolution = Mathf.Clamp(Mathf.ClosestPowerOfTwo(cacheResolution), 64, 1024);
             EnsureTextures(resolution);
@@ -363,7 +490,11 @@ namespace Enlyn.Grass
                 1f / worldDepth,
                 -minimum.x / worldWidth,
                 -minimum.z / worldDepth);
-            heightParams = new Vector4(minimum.y, worldHeight, surfaceHeightTolerance, 0f);
+            heightParams = new Vector4(
+                minimum.y,
+                worldHeight,
+                surfaceHeightTolerance,
+                surfaceFilterEdgeSoftness);
 
             int pixelCount = resolution * resolution;
             float[] density = new float[pixelCount];
@@ -418,12 +549,30 @@ namespace Enlyn.Grass
                 }
             }
 
+            int[] coverageSourcePixels = null;
+            if (coverageHoleFillPixels > 0)
+            {
+                density = CloseCoverageHoles(
+                    density,
+                    resolution,
+                    coverageHoleFillPixels,
+                    out coverageSourcePixels);
+            }
+
             Color[] coveragePixels = new Color[pixelCount];
             Color[] heightPixels = new Color[pixelCount];
             for (int pixelIndex = 0; pixelIndex < pixelCount; pixelIndex++)
             {
-                Vector3 color = colorWeight[pixelIndex] > 0.0001f
-                    ? colorSum[pixelIndex] / colorWeight[pixelIndex]
+                int attributePixelIndex = pixelIndex;
+                if (colorWeight[attributePixelIndex] <= 0.0001f
+                    && coverageSourcePixels != null
+                    && coverageSourcePixels[pixelIndex] >= 0)
+                {
+                    attributePixelIndex = coverageSourcePixels[pixelIndex];
+                }
+
+                Vector3 color = colorWeight[attributePixelIndex] > 0.0001f
+                    ? colorSum[attributePixelIndex] / colorWeight[attributePixelIndex]
                     : Vector3.zero;
                 float pixelDensity = density[pixelIndex];
                 coveragePixels[pixelIndex] = new Color(
@@ -431,8 +580,8 @@ namespace Enlyn.Grass
                     color.y * pixelDensity,
                     color.z * pixelDensity,
                     pixelDensity);
-                float normalizedHeight = heightWeight[pixelIndex] > 0f
-                    ? Mathf.Clamp01((rootHeight[pixelIndex] - minimum.y) / worldHeight)
+                float normalizedHeight = heightWeight[attributePixelIndex] > 0f
+                    ? Mathf.Clamp01((rootHeight[attributePixelIndex] - minimum.y) / worldHeight)
                     : 0f;
                 heightPixels[pixelIndex] = new Color(normalizedHeight * pixelDensity, 0f, 0f, 1f);
             }
@@ -447,13 +596,120 @@ namespace Enlyn.Grass
             return true;
         }
 
-        private static int ComputeColorSignature(AnimeGrassField targetField)
+        private static float[] CloseCoverageHoles(
+            float[] source,
+            int resolution,
+            int radius,
+            out int[] sourcePixels)
+        {
+            int pixelCount = source.Length;
+            float[] horizontalDilated = new float[pixelCount];
+            int[] horizontalSources = new int[pixelCount];
+            float[] dilated = new float[pixelCount];
+            int[] dilatedSources = new int[pixelCount];
+
+            for (int y = 0; y < resolution; y++)
+            {
+                int row = y * resolution;
+                for (int x = 0; x < resolution; x++)
+                {
+                    float best = 0f;
+                    int bestIndex = -1;
+                    int minX = Mathf.Max(0, x - radius);
+                    int maxX = Mathf.Min(resolution - 1, x + radius);
+                    for (int sampleX = minX; sampleX <= maxX; sampleX++)
+                    {
+                        int sampleIndex = row + sampleX;
+                        if (source[sampleIndex] > best)
+                        {
+                            best = source[sampleIndex];
+                            bestIndex = sampleIndex;
+                        }
+                    }
+
+                    int pixelIndex = row + x;
+                    horizontalDilated[pixelIndex] = best;
+                    horizontalSources[pixelIndex] = bestIndex;
+                }
+            }
+
+            for (int y = 0; y < resolution; y++)
+            {
+                for (int x = 0; x < resolution; x++)
+                {
+                    float best = 0f;
+                    int bestIndex = -1;
+                    int minY = Mathf.Max(0, y - radius);
+                    int maxY = Mathf.Min(resolution - 1, y + radius);
+                    for (int sampleY = minY; sampleY <= maxY; sampleY++)
+                    {
+                        int sampleIndex = sampleY * resolution + x;
+                        if (horizontalDilated[sampleIndex] > best)
+                        {
+                            best = horizontalDilated[sampleIndex];
+                            bestIndex = horizontalSources[sampleIndex];
+                        }
+                    }
+
+                    int pixelIndex = y * resolution + x;
+                    dilated[pixelIndex] = best;
+                    dilatedSources[pixelIndex] = bestIndex;
+                }
+            }
+
+            float[] horizontalEroded = new float[pixelCount];
+            for (int y = 0; y < resolution; y++)
+            {
+                int row = y * resolution;
+                for (int x = 0; x < resolution; x++)
+                {
+                    float minimum = 1f;
+                    int minX = Mathf.Max(0, x - radius);
+                    int maxX = Mathf.Min(resolution - 1, x + radius);
+                    for (int sampleX = minX; sampleX <= maxX; sampleX++)
+                    {
+                        minimum = Mathf.Min(minimum, dilated[row + sampleX]);
+                    }
+                    horizontalEroded[row + x] = minimum;
+                }
+            }
+
+            float[] closed = new float[pixelCount];
+            sourcePixels = new int[pixelCount];
+            for (int y = 0; y < resolution; y++)
+            {
+                for (int x = 0; x < resolution; x++)
+                {
+                    float minimum = 1f;
+                    int minY = Mathf.Max(0, y - radius);
+                    int maxY = Mathf.Min(resolution - 1, y + radius);
+                    for (int sampleY = minY; sampleY <= maxY; sampleY++)
+                    {
+                        minimum = Mathf.Min(
+                            minimum,
+                            horizontalEroded[sampleY * resolution + x]);
+                    }
+
+                    int pixelIndex = y * resolution + x;
+                    closed[pixelIndex] = Mathf.Max(source[pixelIndex], minimum);
+                    sourcePixels[pixelIndex] = source[pixelIndex] > 0.0001f
+                        ? pixelIndex
+                        : dilatedSources[pixelIndex];
+                }
+            }
+
+            return closed;
+        }
+
+        private int ComputeColorSignature(AnimeGrassField targetField)
         {
             unchecked
             {
                 int hash = 17;
                 IReadOnlyList<AnimeGrassPrototype> prototypes = targetField.Prototypes;
                 hash = hash * 31 + prototypes.Count;
+                hash = hash * 31 + matchNearGrassColor.GetHashCode();
+                hash = hash * 31 + colorMultiplier.GetHashCode();
                 for (int prototypeIndex = 0; prototypeIndex < prototypes.Count; prototypeIndex++)
                 {
                     AnimeGrassPrototype prototype = prototypes[prototypeIndex];
@@ -483,18 +739,40 @@ namespace Enlyn.Grass
                     {
                         hash = hash * 31 + material.GetColor("_BaseColor").GetHashCode();
                     }
+                    if (material.HasProperty("_ShadowColor"))
+                    {
+                        hash = hash * 31 + material.GetColor("_ShadowColor").GetHashCode();
+                    }
+                    if (material.HasProperty("_ReceiveShadowStrength"))
+                    {
+                        hash = hash * 31 + material.GetFloat("_ReceiveShadowStrength").GetHashCode();
+                    }
+                    if (material.HasProperty("_BaseMap"))
+                    {
+                        Texture baseMap = material.GetTexture("_BaseMap");
+                        hash = hash * 31 + (baseMap != null ? baseMap.GetInstanceID() : 0);
+                    }
                 }
 
                 return hash;
             }
         }
 
-        private bool TryResolveInstanceColor(
+        private bool TryResolveInstanceAppearance(
             AnimeGrassField targetField,
             AnimeGrassInstance instance,
-            out Color grassColor)
+            out Color grassColor,
+            out Color shadowColor,
+            out float receiveShadowStrength)
         {
             grassColor = Color.white;
+            shadowColor = new Color(0.55f, 0.65f, 0.48f, 1f);
+            receiveShadowStrength = 0.7f;
+            if (!targetField.IsPrototypeVisible(instance.prototypeIndex))
+            {
+                return false;
+            }
+
             if (instance.prototypeIndex < 0 || instance.prototypeIndex >= targetField.Prototypes.Count)
             {
                 return false;
@@ -523,8 +801,20 @@ namespace Enlyn.Grass
                 ? instance.color
                 : prototype.DefaultInstanceColor;
             grassColor *= instanceTint;
-            grassColor *= colorMultiplier;
+            if (!matchNearGrassColor)
+            {
+                grassColor *= colorMultiplier;
+            }
             grassColor.a = 1f;
+            if (material.HasProperty("_ShadowColor"))
+            {
+                shadowColor = material.GetColor("_ShadowColor");
+                shadowColor.a = 1f;
+            }
+            if (material.HasProperty("_ReceiveShadowStrength"))
+            {
+                receiveShadowStrength = Mathf.Clamp01(material.GetFloat("_ReceiveShadowStrength"));
+            }
             return true;
         }
 

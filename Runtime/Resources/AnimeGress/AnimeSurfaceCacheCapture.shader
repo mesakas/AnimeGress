@@ -120,6 +120,7 @@ Shader "Hidden/AnimeGress/Surface Cache Capture"
 
             half4 _AnimeSurfaceStampMask;
             float4 _AnimeSurfaceStampParams;
+            float4x4 _AnimeSurfaceStampWorldToLocal;
             float4 _AnimeSurfaceCaptureHeightParams;
 
             struct Attributes
@@ -131,14 +132,14 @@ Shader "Hidden/AnimeGress/Surface Cache Capture"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
-                float2 uv : TEXCOORD0;
+                float3 positionWS : TEXCOORD0;
             };
 
             Varyings StampVert(Attributes input)
             {
                 Varyings output;
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
-                output.uv = input.uv;
+                output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 return output;
             }
 
@@ -149,13 +150,12 @@ Shader "Hidden/AnimeGress/Surface Cache Capture"
                 half normalizedHeight = LOAD_TEXTURE2D(_AnimeSurfaceStampDataTexture, cachePixel).a;
                 float surfaceHeight = _AnimeSurfaceCaptureHeightParams.x
                     + normalizedHeight / max(0.0001, _AnimeSurfaceCaptureHeightParams.y);
-                float2 centeredUv = abs(input.uv * 2.0 - 1.0);
-                float verticalDistance = abs(
-                    (surfaceHeight - _AnimeSurfaceStampParams.z)
-                    * _AnimeSurfaceStampParams.w);
+                float3 positionWS = float3(input.positionWS.x, surfaceHeight, input.positionWS.z);
+                float3 normalizedPosition = abs(
+                    mul(_AnimeSurfaceStampWorldToLocal, float4(positionWS, 1.0)).xyz * 2.0);
                 float distanceToCenter = _AnimeSurfaceStampParams.x < 0.5
-                    ? length(float3(centeredUv.x, verticalDistance, centeredUv.y))
-                    : max(max(centeredUv.x, centeredUv.y), verticalDistance);
+                    ? length(normalizedPosition)
+                    : max(max(normalizedPosition.x, normalizedPosition.y), normalizedPosition.z);
                 half weight = 1.0h - smoothstep(
                     saturate(_AnimeSurfaceStampParams.y),
                     1.0,

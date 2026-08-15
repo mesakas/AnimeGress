@@ -14,7 +14,7 @@ namespace Enlyn.Grass
     public sealed class AnimeGrassField : MonoBehaviour
     {
         private const int MaxBatchSize = 1023;
-        private const int CurrentSettingsVersion = 2;
+        private const int CurrentSettingsVersion = 3;
         private static readonly List<AnimeGrassField> ActiveFieldList = new List<AnimeGrassField>();
         private static readonly Dictionary<int, int> RendererFeatureRenderedFrames = new Dictionary<int, int>();
 #if UNITY_EDITOR
@@ -29,13 +29,22 @@ namespace Enlyn.Grass
 
         private static readonly int InstanceColorId = Shader.PropertyToID("_InstanceColor");
         private static readonly int InstanceNormalId = Shader.PropertyToID("_InstanceNormal");
+        private static readonly int InstanceBaseRotationId = Shader.PropertyToID("_InstanceBaseRotation");
         private static readonly int InstanceWindWeightId = Shader.PropertyToID("_InstanceWindWeight");
         private static readonly int InstanceFadeId = Shader.PropertyToID("_InstanceFade");
         private static readonly int BatchReceiveShadowsId = Shader.PropertyToID("_BatchReceiveShadows");
+        private static readonly int BatchFaceTargetId = Shader.PropertyToID("_EnlynGrassFaceTarget");
+        private static readonly int BatchFaceRotationId = Shader.PropertyToID("_EnlynGrassFaceRotation");
+        private static readonly int BatchInstanceRootOsId = Shader.PropertyToID("_EnlynGrassInstanceRootOS");
+        private static readonly int BatchViewPositionId = Shader.PropertyToID("_EnlynGrassViewPosition");
+        private static readonly int BatchOverheadBendId = Shader.PropertyToID("_EnlynGrassOverheadBend");
         private static Mesh fallbackBladeMesh;
 
         [SerializeField]
         private List<AnimeGrassPrototype> prototypes = new List<AnimeGrassPrototype>();
+
+        [SerializeField, HideInInspector]
+        private List<bool> prototypeVisibility = new List<bool>();
 
         [SerializeField, HideInInspector]
         private List<AnimeGrassInstance> instances = new List<AnimeGrassInstance>();
@@ -60,6 +69,9 @@ namespace Enlyn.Grass
 
         [SerializeField]
         private Camera cameraOverride;
+
+        [SerializeField]
+        private Transform facingTargetOverride;
 
         [SerializeField]
         private int renderingLayer;
@@ -88,8 +100,10 @@ namespace Enlyn.Grass
         private int lastQueuedInstanceCount;
         private int lastRenderableLodCount;
         private int lastSkippedInvalidPrototypeCount;
+        private int lastSkippedHiddenPrototypeCount;
         private int lastSkippedMissingLodCount;
         private int lastSkippedDistanceCount;
+        private int lastSkippedDensityCount;
         private int lastFallbackMeshCount;
 
         public List<AnimeGrassPrototype> Prototypes => prototypes;
@@ -102,8 +116,10 @@ namespace Enlyn.Grass
         public int LastQueuedInstanceCount => lastQueuedInstanceCount;
         public int LastRenderableLodCount => lastRenderableLodCount;
         public int LastSkippedInvalidPrototypeCount => lastSkippedInvalidPrototypeCount;
+        public int LastSkippedHiddenPrototypeCount => lastSkippedHiddenPrototypeCount;
         public int LastSkippedMissingLodCount => lastSkippedMissingLodCount;
         public int LastSkippedDistanceCount => lastSkippedDistanceCount;
+        public int LastSkippedDensityCount => lastSkippedDensityCount;
         public int LastFallbackMeshCount => lastFallbackMeshCount;
         public int RenderingLayer => renderingLayer;
         internal static IReadOnlyList<AnimeGrassField> ActiveFields => ActiveFieldList;
@@ -117,6 +133,7 @@ namespace Enlyn.Grass
                 drawInEditMode = value;
 #if UNITY_EDITOR
                 editorPreviewDirty = true;
+                SceneView.RepaintAll();
 #endif
             }
         }
@@ -128,8 +145,77 @@ namespace Enlyn.Grass
                 return;
             }
 
+            EnsurePrototypeVisibilityCount();
             prototypes.Add(prototype);
+            prototypeVisibility.Add(true);
             MarkDirty();
+        }
+
+        public bool IsPrototypeVisible(int prototypeIndex)
+        {
+            return prototypeIndex >= 0
+                && (prototypeVisibility == null
+                    || prototypeIndex >= prototypeVisibility.Count
+                    || prototypeVisibility[prototypeIndex]);
+        }
+
+        public void SetPrototypeVisible(int prototypeIndex, bool visible)
+        {
+            EnsurePrototypeVisibilityCount();
+            if (prototypeIndex < 0 || prototypeIndex >= prototypeVisibility.Count
+                || prototypeVisibility[prototypeIndex] == visible)
+            {
+                return;
+            }
+
+            prototypeVisibility[prototypeIndex] = visible;
+            MarkDirty();
+        }
+
+        public int GetPrototypeInstanceCount(int prototypeIndex)
+        {
+            if (instances == null || prototypeIndex < 0)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            for (int i = 0; i < instances.Count; i++)
+            {
+                if (instances[i].prototypeIndex == prototypeIndex)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        public int RemoveInstancesOfPrototype(int prototypeIndex)
+        {
+            if (instances == null || prototypeIndex < 0)
+            {
+                return 0;
+            }
+
+            int removed = 0;
+            for (int i = instances.Count - 1; i >= 0; i--)
+            {
+                if (instances[i].prototypeIndex != prototypeIndex)
+                {
+                    continue;
+                }
+
+                instances.RemoveAt(i);
+                removed++;
+            }
+
+            if (removed > 0)
+            {
+                MarkDirty();
+            }
+
+            return removed;
         }
 
         public void AddInstance(AnimeGrassInstance instance)
@@ -186,6 +272,11 @@ namespace Enlyn.Grass
             for (int i = 0; i < instances.Count; i++)
             {
                 AnimeGrassInstance instance = instances[i];
+                if (!IsPrototypeVisible(instance.prototypeIndex))
+                {
+                    continue;
+                }
+
                 if (prototypeFilter >= 0 && instance.prototypeIndex != prototypeFilter)
                 {
                     continue;
@@ -229,6 +320,11 @@ namespace Enlyn.Grass
                     continue;
                 }
 
+                if (prototypeFilter < 0 && !IsPrototypeVisible(instance.prototypeIndex))
+                {
+                    continue;
+                }
+
                 if ((instance.position - center).sqrMagnitude > radiusSqr)
                 {
                     continue;
@@ -266,6 +362,7 @@ namespace Enlyn.Grass
             }
 #if UNITY_EDITOR
             editorPreviewDirty = true;
+            SceneView.RepaintAll();
 #endif
         }
 
@@ -319,6 +416,7 @@ namespace Enlyn.Grass
 
         private void OnEnable()
         {
+            EnsurePrototypeVisibilityCount();
             if (!ActiveFieldList.Contains(this))
             {
                 ActiveFieldList.Add(this);
@@ -326,11 +424,10 @@ namespace Enlyn.Grass
 
             chunksDirty = true;
 #if UNITY_EDITOR
-            editorPreviewDirty = true;
             EditorApplication.update -= RefreshEditorPreview;
-            EditorApplication.update += RefreshEditorPreview;
             EditorApplication.projectChanged -= MarkEditorPreviewDirty;
-            EditorApplication.projectChanged += MarkEditorPreviewDirty;
+            ClearEditorPreview();
+            SceneView.RepaintAll();
 #endif
         }
 
@@ -349,10 +446,14 @@ namespace Enlyn.Grass
         {
             if (settingsVersion < CurrentSettingsVersion)
             {
-                ignoreLodDistanceInEditMode = false;
+                if (settingsVersion < 2)
+                {
+                    ignoreLodDistanceInEditMode = false;
+                }
                 settingsVersion = CurrentSettingsVersion;
             }
 
+            EnsurePrototypeVisibilityCount();
             chunkSize = Mathf.Max(1f, chunkSize);
             chunkBoundsPadding = Mathf.Max(0f, chunkBoundsPadding);
             gizmoDrawLimit = Mathf.Max(1, gizmoDrawLimit);
@@ -365,6 +466,7 @@ namespace Enlyn.Grass
             }
 #if UNITY_EDITOR
             editorPreviewDirty = true;
+            SceneView.RepaintAll();
 #endif
         }
 
@@ -473,40 +575,75 @@ namespace Enlyn.Grass
                     continue;
                 }
 
-                AnimeGrassPrototype prototype = prototypes[instance.prototypeIndex];
-                if (prototype == null || !TryGetEditorPreviewLod(prototype, out AnimeGrassLod lod, out Mesh mesh))
+                if (!IsPrototypeVisible(instance.prototypeIndex))
                 {
                     continue;
                 }
 
-                GameObject previewObject = new GameObject("Grass " + i)
+                AnimeGrassPrototype prototype = prototypes[instance.prototypeIndex];
+                if (prototype == null || prototype.Lods == null)
                 {
-                    hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild,
-                    layer = renderingLayer
-                };
-                previewObject.transform.SetParent(editorPreviewRoot.transform, false);
-                Vector3 correctedPosition = instance.position
-                    + instance.rotation * Vector3.Scale(instance.scale, prototype.ModelPositionOffset);
-                Quaternion correctedRotation = instance.rotation * prototype.ModelRotationOffset;
-                previewObject.transform.SetPositionAndRotation(correctedPosition, correctedRotation);
-                previewObject.transform.localScale = Vector3.Scale(instance.scale, prototype.ModelScale);
+                    continue;
+                }
 
-                MeshFilter meshFilter = previewObject.AddComponent<MeshFilter>();
-                meshFilter.sharedMesh = mesh;
+                bool hasDefaultLod = false;
+                AnimeGrassLod[] lods = prototype.Lods;
+                for (int lodIndex = 0; lodIndex < lods.Length; lodIndex++)
+                {
+                    AnimeGrassLod lod = lods[lodIndex];
+                    if (lod == null || !IsMaterialUsable(lod.material))
+                    {
+                        continue;
+                    }
 
-                MeshRenderer meshRenderer = previewObject.AddComponent<MeshRenderer>();
-                meshRenderer.sharedMaterial = GetEditorPreviewMaterial(lod.material);
-                meshRenderer.shadowCastingMode = lod.shadowCasting;
-                meshRenderer.receiveShadows = lod.receiveShadows;
-                meshRenderer.lightProbeUsage = LightProbeUsage.Off;
+                    Mesh mesh = IsMeshUsable(lod.mesh) ? lod.mesh : GetFallbackBladeMesh();
+                    if (!IsMeshUsable(mesh))
+                    {
+                        continue;
+                    }
 
-                EditorPreviewInstance previewInstance = new EditorPreviewInstance(
-                    instance,
-                    prototype,
-                    meshFilter,
-                    meshRenderer);
-                editorPreviewInstances.Add(previewInstance);
-                ApplyEditorPreview(previewInstance, lod, mesh, 1f);
+                    bool isDefaultLod = !hasDefaultLod;
+                    hasDefaultLod = true;
+                    GameObject previewObject = new GameObject(
+                        "Grass " + i + " LOD " + lodIndex)
+                    {
+                        hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild,
+                        layer = renderingLayer
+                    };
+                    previewObject.transform.SetParent(editorPreviewRoot.transform, false);
+                    Vector3 correctedPosition = instance.position
+                        + instance.rotation * Vector3.Scale(instance.scale, prototype.ModelPositionOffset);
+                    Quaternion correctedRotation = instance.rotation * prototype.ModelRotationOffset;
+                    previewObject.transform.SetPositionAndRotation(correctedPosition, correctedRotation);
+                    previewObject.transform.localScale = Vector3.Scale(instance.scale, prototype.ModelScale);
+
+                    MeshFilter meshFilter = previewObject.AddComponent<MeshFilter>();
+                    meshFilter.sharedMesh = mesh;
+
+                    MeshRenderer meshRenderer = previewObject.AddComponent<MeshRenderer>();
+                    meshRenderer.sharedMaterial = GetEditorPreviewMaterial(lod.material);
+                    meshRenderer.shadowCastingMode = lod.shadowCasting;
+                    meshRenderer.receiveShadows = lod.receiveShadows;
+                    meshRenderer.lightProbeUsage = LightProbeUsage.Off;
+
+                    EditorPreviewInstance previewInstance = new EditorPreviewInstance(
+                        instance,
+                        prototype,
+                        lod,
+                        lodIndex,
+                        isDefaultLod,
+                        meshFilter,
+                        meshRenderer);
+                    editorPreviewInstances.Add(previewInstance);
+                    ApplyEditorPreview(
+                        previewInstance,
+                        lod,
+                        mesh,
+                        isDefaultLod ? 1f : 0f,
+                        SceneView.lastActiveSceneView != null
+                            ? SceneView.lastActiveSceneView.camera
+                            : null);
+                }
             }
         }
 
@@ -517,23 +654,29 @@ namespace Enlyn.Grass
             for (int i = 0; i < editorPreviewInstances.Count; i++)
             {
                 EditorPreviewInstance preview = editorPreviewInstances[i];
-                float distance = sceneCamera != null
-                    ? Vector3.Distance(sceneCamera.transform.position, preview.instance.position)
-                    : 0f;
+                Vector3 cameraOffset = sceneCamera != null
+                    ? sceneCamera.transform.position - preview.instance.position
+                    : Vector3.zero;
+                float distance = cameraOffset.magnitude;
                 bool ignoreDistance = ignoreLodDistanceInEditMode || sceneCamera == null;
-                if (!TryGetEditorPreviewLod(
-                    preview.prototype,
-                    distance,
-                    ignoreDistance,
-                    out AnimeGrassLod lod,
-                    out Mesh mesh,
-                    out float fade))
+                float fade = ignoreDistance
+                    ? (preview.isDefaultLod ? 1f : 0f)
+                    : preview.prototype.EvaluateLodDitherFade(
+                        preview.lodIndex,
+                        cameraOffset);
+                if (!ignoreDistance)
                 {
-                    preview.meshRenderer.enabled = false;
-                    continue;
+                    fade *= preview.prototype.EvaluateDistanceDensityFade(
+                        preview.instance,
+                        distance);
                 }
 
-                ApplyEditorPreview(preview, lod, mesh, fade);
+                ApplyEditorPreview(
+                    preview,
+                    preview.lod,
+                    preview.meshFilter.sharedMesh,
+                    fade,
+                    sceneCamera);
             }
         }
 
@@ -541,9 +684,10 @@ namespace Enlyn.Grass
             EditorPreviewInstance preview,
             AnimeGrassLod lod,
             Mesh mesh,
-            float fade)
+            float fade,
+            Camera sceneCamera)
         {
-            preview.meshRenderer.enabled = fade > 0.001f;
+            preview.meshRenderer.enabled = Mathf.Abs(fade) > 0.001f;
             if (!preview.meshRenderer.enabled)
             {
                 return;
@@ -557,6 +701,20 @@ namespace Enlyn.Grass
                 preview.meshRenderer.shadowCastingMode = lod.shadowCasting;
                 preview.meshRenderer.receiveShadows = lod.receiveShadows;
             }
+
+            Quaternion renderRotation = ResolveRenderRotation(
+                preview.instance,
+                lod,
+                ResolveFacingTargetPosition(sceneCamera));
+            Vector3 correctedPosition = preview.instance.position
+                + renderRotation
+                * Vector3.Scale(preview.instance.scale, preview.prototype.ModelPositionOffset);
+            preview.meshRenderer.transform.SetPositionAndRotation(
+                correctedPosition,
+                renderRotation * preview.prototype.ModelRotationOffset);
+            preview.meshRenderer.transform.localScale = Vector3.Scale(
+                preview.instance.scale,
+                preview.prototype.ModelScale);
 
             Color instanceColor = preview.instance.color.a > 0.0001f
                 ? preview.instance.color
@@ -573,7 +731,7 @@ namespace Enlyn.Grass
             preview.properties.SetFloat(
                 InstanceWindWeightId,
                 Mathf.Max(0f, preview.instance.windWeight * preview.prototype.WindWeight));
-            preview.properties.SetFloat(InstanceFadeId, Mathf.Clamp01(fade));
+            preview.properties.SetFloat(InstanceFadeId, Mathf.Clamp(fade, -1f, 1f));
             preview.properties.SetFloat(BatchReceiveShadowsId, lod.receiveShadows ? 1f : 0f);
             preview.meshRenderer.SetPropertyBlock(preview.properties);
         }
@@ -618,69 +776,6 @@ namespace Enlyn.Grass
             }
         }
 
-        private static bool TryGetEditorPreviewLod(
-            AnimeGrassPrototype prototype,
-            out AnimeGrassLod previewLod,
-            out Mesh previewMesh)
-        {
-            return TryGetEditorPreviewLod(
-                prototype,
-                0f,
-                true,
-                out previewLod,
-                out previewMesh,
-                out _);
-        }
-
-        private static bool TryGetEditorPreviewLod(
-            AnimeGrassPrototype prototype,
-            float distance,
-            bool ignoreDistance,
-            out AnimeGrassLod previewLod,
-            out Mesh previewMesh,
-            out float previewFade)
-        {
-            previewLod = null;
-            previewMesh = null;
-            previewFade = 0f;
-            AnimeGrassLod[] lods = prototype.Lods;
-            if (lods == null)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < lods.Length; i++)
-            {
-                AnimeGrassLod lod = lods[i];
-                if (lod == null || !IsMaterialUsable(lod.material))
-                {
-                    continue;
-                }
-
-                Mesh mesh = IsMeshUsable(lod.mesh) ? lod.mesh : GetFallbackBladeMesh();
-                if (!IsMeshUsable(mesh))
-                {
-                    continue;
-                }
-
-                float fade = ignoreDistance ? 1f : lod.EvaluateFade(distance);
-                if (fade <= previewFade)
-                {
-                    continue;
-                }
-
-                previewLod = lod;
-                previewMesh = mesh;
-                previewFade = fade;
-                if (ignoreDistance)
-                {
-                    return true;
-                }
-            }
-
-            return previewLod != null;
-        }
-
         private void ClearEditorPreview()
         {
             if (editorPreviewRoot != null)
@@ -707,11 +802,17 @@ namespace Enlyn.Grass
             public EditorPreviewInstance(
                 AnimeGrassInstance instance,
                 AnimeGrassPrototype prototype,
+                AnimeGrassLod lod,
+                int lodIndex,
+                bool isDefaultLod,
                 MeshFilter meshFilter,
                 MeshRenderer meshRenderer)
             {
                 this.instance = instance;
                 this.prototype = prototype;
+                this.lod = lod;
+                this.lodIndex = lodIndex;
+                this.isDefaultLod = isDefaultLod;
                 this.meshFilter = meshFilter;
                 this.meshRenderer = meshRenderer;
                 properties = new MaterialPropertyBlock();
@@ -719,6 +820,8 @@ namespace Enlyn.Grass
 
             public readonly AnimeGrassInstance instance;
             public readonly AnimeGrassPrototype prototype;
+            public readonly int lodIndex;
+            public readonly bool isDefaultLod;
             public readonly MeshFilter meshFilter;
             public readonly MeshRenderer meshRenderer;
             public readonly MaterialPropertyBlock properties;
@@ -731,6 +834,29 @@ namespace Enlyn.Grass
             return renderCamera != null
                 && (renderCamera.cameraType == CameraType.Game
                 || renderCamera.cameraType == CameraType.SceneView);
+        }
+
+        internal static bool ShouldRenderAny(Camera renderCamera)
+        {
+            if (!ShouldRenderCamera(renderCamera))
+            {
+                return false;
+            }
+
+            int cameraMask = renderCamera.cullingMask;
+            for (int i = 0; i < ActiveFieldList.Count; i++)
+            {
+                AnimeGrassField field = ActiveFieldList[i];
+                if (field != null
+                    && field.isActiveAndEnabled
+                    && (Application.isPlaying || field.drawInEditMode)
+                    && (cameraMask & (1 << field.renderingLayer)) != 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         internal static void MarkRenderedByRendererFeature(Camera renderCamera)
@@ -772,7 +898,7 @@ namespace Enlyn.Grass
             }
 
             AnimeSurfaceCache.BindForCamera(renderCamera, commandBuffer);
-            AnimeSurfaceCacheStamp.ApplyGrassInteractionGlobals(commandBuffer);
+            GressVolume.ApplyGrassInteractionGlobals(commandBuffer);
             RenderGrass(renderCamera, commandBuffer);
         }
 
@@ -794,7 +920,8 @@ namespace Enlyn.Grass
 
             Camera lodCamera = ResolveLodReferenceCamera(renderCamera);
             Vector3 cameraPosition = lodCamera.transform.position;
-            bool useFrustumCulling = frustumCulling && Application.isPlaying;
+            Vector3 facingTargetPosition = ResolveFacingTargetPosition(renderCamera);
+            bool useFrustumCulling = frustumCulling;
             if (useFrustumCulling)
             {
                 frustumPlanes = GeometryUtility.CalculateFrustumPlanes(renderCamera);
@@ -808,13 +935,23 @@ namespace Enlyn.Grass
                 }
 
                 lastVisibleChunkCount++;
-                RenderChunk(chunk, cameraPosition, renderCamera, commandBuffer);
+                RenderChunk(
+                    chunk,
+                    cameraPosition,
+                    facingTargetPosition,
+                    renderCamera,
+                    commandBuffer);
             }
 
             FlushBatches(renderCamera, commandBuffer);
         }
 
-        private void RenderChunk(RuntimeChunk chunk, Vector3 cameraPosition, Camera renderCamera, CommandBuffer commandBuffer)
+        private void RenderChunk(
+            RuntimeChunk chunk,
+            Vector3 cameraPosition,
+            Vector3 facingTargetPosition,
+            Camera renderCamera,
+            CommandBuffer commandBuffer)
         {
             List<int> indices = chunk.InstanceIndices;
             for (int i = 0; i < indices.Count; i++)
@@ -827,6 +964,12 @@ namespace Enlyn.Grass
                     continue;
                 }
 
+                if (!IsPrototypeVisible(instance.prototypeIndex))
+                {
+                    lastSkippedHiddenPrototypeCount++;
+                    continue;
+                }
+
                 AnimeGrassPrototype prototype = prototypes[instance.prototypeIndex];
                 if (prototype == null)
                 {
@@ -834,7 +977,8 @@ namespace Enlyn.Grass
                     continue;
                 }
 
-                float distance = Vector3.Distance(cameraPosition, instance.position);
+                Vector3 cameraOffset = cameraPosition - instance.position;
+                float distance = cameraOffset.magnitude;
                 AnimeGrassLod[] lods = prototype.Lods;
                 if (lods == null)
                 {
@@ -843,6 +987,14 @@ namespace Enlyn.Grass
                 }
 
                 bool ignoreDistance = !Application.isPlaying && ignoreLodDistanceInEditMode;
+                float densityFade = ignoreDistance
+                    ? 1f
+                    : prototype.EvaluateDistanceDensityFade(instance, distance);
+                if (densityFade <= 0.001f)
+                {
+                    lastSkippedDensityCount++;
+                    continue;
+                }
                 bool drewEditPreviewLod = false;
                 for (int lodIndex = 0; lodIndex < lods.Length; lodIndex++)
                 {
@@ -871,15 +1023,17 @@ namespace Enlyn.Grass
                         continue;
                     }
 
-                    float fade = ignoreDistance ? 1f : lod.EvaluateFade(distance);
-                    if (fade <= 0.001f)
+                    float fade = ignoreDistance
+                        ? 1f
+                        : prototype.EvaluateLodDitherFade(lodIndex, cameraOffset) * densityFade;
+                    if (Mathf.Abs(fade) <= 0.001f)
                     {
                         lastSkippedDistanceCount++;
                         continue;
                     }
 
                     RuntimeBatch batch = GetBatch(instance.prototypeIndex, lodIndex, prototype, lod, renderMesh);
-                    batch.Add(instance, fade);
+                    batch.Add(instance, fade, facingTargetPosition);
                     lastQueuedInstanceCount++;
                     drewEditPreviewLod = true;
                     if (batch.Count == MaxBatchSize)
@@ -919,8 +1073,10 @@ namespace Enlyn.Grass
             lastQueuedInstanceCount = 0;
             lastRenderableLodCount = 0;
             lastSkippedInvalidPrototypeCount = 0;
+            lastSkippedHiddenPrototypeCount = 0;
             lastSkippedMissingLodCount = 0;
             lastSkippedDistanceCount = 0;
+            lastSkippedDensityCount = 0;
             lastFallbackMeshCount = 0;
         }
 
@@ -962,6 +1118,49 @@ namespace Enlyn.Grass
             return cameraOverride != null ? cameraOverride : renderCamera;
         }
 
+        private Vector3 ResolveFacingTargetPosition(Camera renderCamera)
+        {
+#if UNITY_EDITOR
+            if (renderCamera != null && renderCamera.cameraType == CameraType.SceneView)
+            {
+                return renderCamera.transform.position;
+            }
+#endif
+            if (facingTargetOverride != null)
+            {
+                return facingTargetOverride.position;
+            }
+
+            return renderCamera != null ? renderCamera.transform.position : transform.position;
+        }
+
+#if UNITY_EDITOR
+        private static Quaternion ResolveRenderRotation(
+            AnimeGrassInstance instance,
+            AnimeGrassLod lod,
+            Vector3 targetPosition)
+        {
+            if (lod == null || !lod.faceTarget)
+            {
+                return instance.rotation;
+            }
+
+            Vector3 up = instance.normal.sqrMagnitude > 0.0001f
+                ? instance.normal.normalized
+                : instance.rotation * Vector3.up;
+            Vector3 direction = Vector3.ProjectOnPlane(
+                targetPosition - instance.position,
+                up);
+            if (direction.sqrMagnitude <= 0.000001f)
+            {
+                return instance.rotation;
+            }
+
+            Quaternion facingRotation = Quaternion.LookRotation(direction.normalized, up);
+            return Quaternion.AngleAxis(lod.faceTargetRotationOffset, up) * facingRotation;
+        }
+#endif
+
         private void OnDrawGizmosSelected()
         {
             if (!drawInstanceGizmos || instances == null || instances.Count == 0)
@@ -973,7 +1172,11 @@ namespace Enlyn.Grass
             int step = Mathf.Max(1, Mathf.CeilToInt(instances.Count / (float)Mathf.Max(1, gizmoDrawLimit)));
             for (int i = 0; i < instances.Count; i += step)
             {
-                Gizmos.DrawWireSphere(instances[i].position, gizmoSize);
+                AnimeGrassInstance instance = instances[i];
+                if (IsPrototypeVisible(instance.prototypeIndex))
+                {
+                    Gizmos.DrawWireSphere(instance.position, gizmoSize);
+                }
             }
 
             if (TryGetInstancesBounds(out Bounds bounds))
@@ -981,6 +1184,27 @@ namespace Enlyn.Grass
                 Gizmos.color = new Color(gizmoColor.r, gizmoColor.g, gizmoColor.b, 0.35f);
                 Gizmos.DrawCube(bounds.center, bounds.size);
                 Gizmos.DrawWireCube(bounds.center, bounds.size);
+            }
+        }
+
+        private void EnsurePrototypeVisibilityCount()
+        {
+            if (prototypeVisibility == null)
+            {
+                prototypeVisibility = new List<bool>();
+            }
+
+            int prototypeCount = prototypes != null ? prototypes.Count : 0;
+            while (prototypeVisibility.Count < prototypeCount)
+            {
+                prototypeVisibility.Add(true);
+            }
+
+            if (prototypeVisibility.Count > prototypeCount)
+            {
+                prototypeVisibility.RemoveRange(
+                    prototypeCount,
+                    prototypeVisibility.Count - prototypeCount);
             }
         }
 
@@ -1140,15 +1364,20 @@ namespace Enlyn.Grass
             private readonly Matrix4x4[] matrices = new Matrix4x4[MaxBatchSize];
             private readonly Vector4[] colors = new Vector4[MaxBatchSize];
             private readonly Vector4[] normals = new Vector4[MaxBatchSize];
+            private readonly Vector4[] baseRotations = new Vector4[MaxBatchSize];
             private readonly float[] windWeights = new float[MaxBatchSize];
             private readonly float[] fades = new float[MaxBatchSize];
             private readonly MaterialPropertyBlock propertyBlock = new MaterialPropertyBlock();
+            private Vector3 facingTargetPosition;
+            private Matrix4x4 modelCorrectionMatrix;
+            private Vector3 instanceRootOs;
 
             public RuntimeBatch(AnimeGrassPrototype prototype, AnimeGrassLod lod, Mesh mesh)
             {
                 this.prototype = prototype;
                 this.lod = lod;
                 this.mesh = mesh;
+                RefreshModelCorrection();
             }
 
             public int Count { get; private set; }
@@ -1158,19 +1387,41 @@ namespace Enlyn.Grass
                 return ReferenceEquals(lod, otherLod) && ReferenceEquals(mesh, otherMesh);
             }
 
-            public void Add(AnimeGrassInstance instance, float fade)
+            public void Add(
+                AnimeGrassInstance instance,
+                float fade,
+                Vector3 facingTargetPosition)
             {
-                matrices[Count] = instance.ToMatrix() * prototype.ModelCorrectionMatrix;
+                matrices[Count] = Matrix4x4.TRS(
+                    instance.position,
+                    instance.rotation,
+                    instance.scale) * modelCorrectionMatrix;
                 colors[Count] = new Vector4(instance.color.r, instance.color.g, instance.color.b, instance.color.a);
                 normals[Count] = new Vector4(instance.normal.x, instance.normal.y, instance.normal.z, 0f);
+                if (lod.faceTarget)
+                {
+                    baseRotations[Count] = new Vector4(
+                        instance.rotation.x,
+                        instance.rotation.y,
+                        instance.rotation.z,
+                        instance.rotation.w);
+                }
                 windWeights[Count] = Mathf.Max(0f, instance.windWeight * prototype.WindWeight);
-                fades[Count] = Mathf.Clamp01(fade);
+                fades[Count] = Mathf.Clamp(fade, -1f, 1f);
+                this.facingTargetPosition = facingTargetPosition;
                 Count++;
             }
 
             public void Reset()
             {
                 Count = 0;
+                RefreshModelCorrection();
+            }
+
+            private void RefreshModelCorrection()
+            {
+                modelCorrectionMatrix = prototype.ModelCorrectionMatrix;
+                instanceRootOs = modelCorrectionMatrix.inverse.MultiplyPoint3x4(Vector3.zero);
             }
 
             public void Flush(int layer, Camera camera, CommandBuffer commandBuffer)
@@ -1214,9 +1465,44 @@ namespace Enlyn.Grass
                 propertyBlock.Clear();
                 propertyBlock.SetVectorArray(InstanceColorId, colors);
                 propertyBlock.SetVectorArray(InstanceNormalId, normals);
+                if (lod.faceTarget)
+                {
+                    propertyBlock.SetVectorArray(InstanceBaseRotationId, baseRotations);
+                }
                 propertyBlock.SetFloatArray(InstanceWindWeightId, windWeights);
                 propertyBlock.SetFloatArray(InstanceFadeId, fades);
                 propertyBlock.SetFloat(BatchReceiveShadowsId, lod.receiveShadows ? 1f : 0f);
+                propertyBlock.SetVector(
+                    BatchFaceTargetId,
+                    new Vector4(
+                        facingTargetPosition.x,
+                        facingTargetPosition.y,
+                        facingTargetPosition.z,
+                        lod.faceTarget ? 1f : 0f));
+                propertyBlock.SetFloat(
+                    BatchFaceRotationId,
+                    lod.faceTargetRotationOffset * Mathf.Deg2Rad);
+                propertyBlock.SetVector(
+                    BatchInstanceRootOsId,
+                    new Vector4(instanceRootOs.x, instanceRootOs.y, instanceRootOs.z, 1f));
+                Vector3 viewPosition = camera != null
+                    ? camera.transform.position
+                    : facingTargetPosition;
+                propertyBlock.SetVector(
+                    BatchViewPositionId,
+                    new Vector4(viewPosition.x, viewPosition.y, viewPosition.z, 1f));
+                float overheadStartAngle = Mathf.Clamp(lod.overheadBendStartAngle, 0f, 89f);
+                float overheadEndAngle = Mathf.Clamp(
+                    Mathf.Max(overheadStartAngle + 1f, lod.overheadBendEndAngle),
+                    1f,
+                    90f);
+                propertyBlock.SetVector(
+                    BatchOverheadBendId,
+                    new Vector4(
+                        lod.overheadBend ? 1f : 0f,
+                        Mathf.Clamp(lod.overheadBendAngle, 0f, 90f) * Mathf.Deg2Rad,
+                        Mathf.Sin(overheadStartAngle * Mathf.Deg2Rad),
+                        Mathf.Sin(overheadEndAngle * Mathf.Deg2Rad)));
 
                 int subMeshIndex;
                 try

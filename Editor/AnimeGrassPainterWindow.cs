@@ -258,10 +258,18 @@ namespace Enlyn.Grass.Editor
             for (int i = 0; i < prototypes.Count; i++)
             {
                 names[i] = prototypes[i] == null ? "(草类型丢失)" : prototypes[i].name;
+                if (!field.IsPrototypeVisible(i))
+                {
+                    names[i] += "（已隐藏）";
+                }
             }
 
             prototypeIndex = Mathf.Clamp(prototypeIndex, 0, prototypes.Count - 1);
             prototypeIndex = EditorGUILayout.Popup("当前草类型", prototypeIndex, names);
+            if (!field.IsPrototypeVisible(prototypeIndex))
+            {
+                EditorGUILayout.HelpBox("当前草类型已隐藏；新铺设的实例会保存，但不会显示。可在草场 Inspector 的草类型管理列表中重新显示。", MessageType.Warning);
+            }
         }
 
         private void DrawModeToolbar()

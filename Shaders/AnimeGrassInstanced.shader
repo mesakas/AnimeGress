@@ -3,6 +3,8 @@ Shader "AnimeGress/Anime Grass Instanced"
     Properties
     {
         _BaseMap ("基础贴图", 2D) = "white" {}
+        _AlphaMap ("独立 Alpha 贴图", 2D) = "white" {}
+        [Enum(R, 0, Alpha, 1)] _AlphaMapChannel ("Alpha 贴图通道", Float) = 0
         _BaseColor ("基础颜色", Color) = (1, 1, 1, 1)
         _RootColor ("根部颜色", Color) = (0.48, 0.78, 0.36, 1)
         _TipColor ("顶部颜色", Color) = (0.86, 1.0, 0.58, 1)
@@ -34,8 +36,14 @@ Shader "AnimeGress/Anime Grass Instanced"
         [HideInInspector] _BatchReceiveShadows ("Batch Receive Shadows", Float) = 1
         [HideInInspector] _InstanceColor ("Instance Color", Color) = (1, 1, 1, 1)
         [HideInInspector] _InstanceNormal ("Instance Normal", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _InstanceBaseRotation ("Instance Base Rotation", Vector) = (0, 0, 0, 1)
         [HideInInspector] _InstanceWindWeight ("Instance Wind Weight", Float) = 1
         [HideInInspector] _InstanceFade ("Instance Fade", Float) = 1
+        [HideInInspector] _EnlynGrassFaceTarget ("Grass Face Target", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _EnlynGrassFaceRotation ("Grass Face Rotation", Float) = 0
+        [HideInInspector] _EnlynGrassInstanceRootOS ("Grass Instance Root OS", Vector) = (0, 0, 0, 1)
+        [HideInInspector] _EnlynGrassViewPosition ("Grass View Position", Vector) = (0, 0, 0, 1)
+        [HideInInspector] _EnlynGrassOverheadBend ("Grass Overhead Bend", Vector) = (0, 0, 0, 1)
     }
 
     SubShader
@@ -71,9 +79,13 @@ Shader "AnimeGress/Anime Grass Instanced"
 
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);
+            TEXTURE2D(_AlphaMap);
+            SAMPLER(sampler_AlphaMap);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
+                float4 _AlphaMap_ST;
+                half _AlphaMapChannel;
                 half4 _BaseColor;
                 half4 _RootColor;
                 half4 _TipColor;
@@ -106,19 +118,30 @@ Shader "AnimeGress/Anime Grass Instanced"
 
             float4 _EnlynGrassWind;
             float4 _EnlynGrassWindParams;
+            float4 _EnlynGrassWindColorParams;
+            float4 _EnlynGrassWindColorGustParams;
             half4 _EnlynGrassWindTint;
             half _EnlynGrassWindTintStrength;
             half _BatchReceiveShadows;
+            float4 _EnlynGrassFaceTarget;
+            float _EnlynGrassFaceRotation;
+            float4 _EnlynGrassInstanceRootOS;
+            float4 _EnlynGrassViewPosition;
+            float4 _EnlynGrassOverheadBend;
 
             #define ENLYN_GRASS_MAX_INTERACTION_VOLUMES 16
             float _EnlynGrassInteractionVolumeCount;
             float4 _EnlynGrassInteractionVolumeCenterShape[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeHalfSizeStrength[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeRotationParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            float4 _EnlynGrassInteractionVolumeParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            float4 _EnlynGrassInteractionVolumeExclusionParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            float4 _EnlynGrassInteractionVolumeWorldToLocal0[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            float4 _EnlynGrassInteractionVolumeWorldToLocal1[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            float4 _EnlynGrassInteractionVolumeWorldToLocal2[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
 
             UNITY_INSTANCING_BUFFER_START(EnlynGrassPerInstance)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _InstanceColor)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _InstanceNormal)
+                UNITY_DEFINE_INSTANCED_PROP(float4, _InstanceBaseRotation)
                 UNITY_DEFINE_INSTANCED_PROP(float, _InstanceWindWeight)
                 UNITY_DEFINE_INSTANCED_PROP(float, _InstanceFade)
             UNITY_INSTANCING_BUFFER_END(EnlynGrassPerInstance)
@@ -135,7 +158,7 @@ Shader "AnimeGress/Anime Grass Instanced"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
-                float2 uv : TEXCOORD0;
+                float4 uv : TEXCOORD0;
                 half3 normalWS : TEXCOORD1;
                 half4 color : TEXCOORD2;
                 half height01 : TEXCOORD3;
@@ -144,6 +167,7 @@ Shader "AnimeGress/Anime Grass Instanced"
                 half fogFactor : TEXCOORD6;
                 float4 shadowCoord : TEXCOORD7;
                 float4 surfaceCacheUvValidHeight : TEXCOORD8;
+                half volumeExclusion : TEXCOORD9;
             };
 
             float EnlynDither(float2 pixelPosition)
@@ -152,23 +176,69 @@ Shader "AnimeGress/Anime Grass Instanced"
                 return frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
             }
 
-            float2 EnlynGrassVolumeToLocal(float2 offsetWS, float cosine, float sine)
+            float3 EnlynRotateByQuaternion(float3 value, float4 rotation)
             {
-                return float2(
-                    cosine * offsetWS.x - sine * offsetWS.y,
-                    sine * offsetWS.x + cosine * offsetWS.y);
+                return value + 2.0 * cross(
+                    rotation.xyz,
+                    cross(rotation.xyz, value) + rotation.w * value);
             }
 
-            float2 EnlynGrassVolumeToWorld(float2 directionLS, float cosine, float sine)
+            float3 EnlynFaceTargetVector(
+                float3 valueWS,
+                float4 baseRotation,
+                float3 targetRightWS,
+                float3 targetUpWS,
+                float3 targetForwardWS)
             {
-                return float2(
-                    cosine * directionLS.x + sine * directionLS.y,
-                    -sine * directionLS.x + cosine * directionLS.y);
+                float rotationLengthSq = dot(baseRotation, baseRotation);
+                float4 safeRotation = rotationLengthSq > 0.0001
+                    ? baseRotation * rsqrt(rotationLengthSq)
+                    : float4(0.0, 0.0, 0.0, 1.0);
+                float3 unrotatedValue = EnlynRotateByQuaternion(
+                    valueWS,
+                    float4(-safeRotation.xyz, safeRotation.w));
+                return targetRightWS * unrotatedValue.x
+                    + targetUpWS * unrotatedValue.y
+                    + targetForwardWS * unrotatedValue.z;
             }
 
-            float2 EnlynGrassVolumeInteraction(float3 positionWS, float height01)
+            float3 EnlynRotateAroundAxis(float3 value, float3 axis, float angle)
+            {
+                float rotationSin;
+                float rotationCos;
+                sincos(angle, rotationSin, rotationCos);
+                return value * rotationCos
+                    + cross(axis, value) * rotationSin
+                    + axis * dot(axis, value) * (1.0 - rotationCos);
+            }
+
+            float3 EnlynGrassVolumeToLocal(float3 positionWS, int volumeIndex)
+            {
+                float4 position = float4(positionWS, 1.0);
+                return float3(
+                    dot(_EnlynGrassInteractionVolumeWorldToLocal0[volumeIndex], position),
+                    dot(_EnlynGrassInteractionVolumeWorldToLocal1[volumeIndex], position),
+                    dot(_EnlynGrassInteractionVolumeWorldToLocal2[volumeIndex], position));
+            }
+
+            float3 EnlynGrassVolumeNormalToWorld(float3 normalLS, int volumeIndex)
+            {
+                float4 row0 = _EnlynGrassInteractionVolumeWorldToLocal0[volumeIndex];
+                float4 row1 = _EnlynGrassInteractionVolumeWorldToLocal1[volumeIndex];
+                float4 row2 = _EnlynGrassInteractionVolumeWorldToLocal2[volumeIndex];
+                return float3(
+                    dot(float3(row0.x, row1.x, row2.x), normalLS),
+                    dot(float3(row0.y, row1.y, row2.y), normalLS),
+                    dot(float3(row0.z, row1.z, row2.z), normalLS));
+            }
+
+            float3 EnlynGrassVolumeInteraction(
+                float3 positionWS,
+                float3 rootPositionWS,
+                float height01)
             {
                 float2 totalOffset = float2(0.0, 0.0);
+                float totalExclusion = 0.0;
                 int volumeCount = min(
                     (int)_EnlynGrassInteractionVolumeCount,
                     ENLYN_GRASS_MAX_INTERACTION_VOLUMES);
@@ -177,68 +247,79 @@ Shader "AnimeGress/Anime Grass Instanced"
                 for (int volumeIndex = 0; volumeIndex < volumeCount; volumeIndex++)
                 {
                     float4 centerShape = _EnlynGrassInteractionVolumeCenterShape[volumeIndex];
-                    float4 halfSizeStrength = _EnlynGrassInteractionVolumeHalfSizeStrength[volumeIndex];
-                    float4 rotationParams = _EnlynGrassInteractionVolumeRotationParams[volumeIndex];
-                    float3 halfSize = max(halfSizeStrength.xyz, float3(0.005, 0.005, 0.005));
-                    float3 offsetFromCenter = positionWS - centerShape.xyz;
-                    float2 localXZ = EnlynGrassVolumeToLocal(
-                        offsetFromCenter.xz,
-                        rotationParams.x,
-                        rotationParams.y);
-                    float3 normalizedPosition = float3(
-                        localXZ.x / halfSize.x,
-                        offsetFromCenter.y / halfSize.y,
-                        localXZ.y / halfSize.z);
+                    float4 volumeParams = _EnlynGrassInteractionVolumeParams[volumeIndex];
+                    float4 exclusionParams = _EnlynGrassInteractionVolumeExclusionParams[volumeIndex];
+                    float3 normalizedPosition = EnlynGrassVolumeToLocal(
+                        positionWS,
+                        volumeIndex) * 2.0;
                     float normalizedDistance = centerShape.w < 0.5
                         ? length(normalizedPosition)
                         : max(
                             max(abs(normalizedPosition.x), abs(normalizedPosition.y)),
                             abs(normalizedPosition.z));
-                    if (normalizedDistance >= 1.0)
+                    if (normalizedDistance < 1.0 && volumeParams.x > 0.0001)
                     {
-                        continue;
+                        float penetration = 1.0 - normalizedDistance;
+                        float volumeWeight = smoothstep(
+                            0.0,
+                            max(0.001, volumeParams.y),
+                            penetration);
+                        float upperWeight = saturate(
+                            (height01 - volumeParams.z)
+                            / max(0.001, 1.0 - volumeParams.z));
+                        upperWeight *= upperWeight;
+
+                        float3 directionLS;
+                        if (centerShape.w < 0.5)
+                        {
+                            directionLS = normalizedPosition;
+                        }
+                        else
+                        {
+                            float2 distanceToFace = 1.0 - abs(normalizedPosition.xz);
+                            if (distanceToFace.x < distanceToFace.y)
+                            {
+                                directionLS = float3(normalizedPosition.x >= 0.0 ? 1.0 : -1.0, 0.0, 0.0);
+                            }
+                            else
+                            {
+                                directionLS = float3(0.0, 0.0, normalizedPosition.z >= 0.0 ? 1.0 : -1.0);
+                            }
+                        }
+
+                        float3 directionWS3 = EnlynGrassVolumeNormalToWorld(directionLS, volumeIndex);
+                        float2 directionWS = directionWS3.xz;
+                        float directionLengthSq = dot(directionWS, directionWS);
+                        directionWS = directionLengthSq > 0.0001
+                            ? directionWS * rsqrt(directionLengthSq)
+                            : float2(1.0, 0.0);
+                        totalOffset += directionWS
+                            * volumeParams.x
+                            * volumeWeight
+                            * upperWeight;
                     }
 
-                    float penetration = 1.0 - normalizedDistance;
-                    float volumeWeight = smoothstep(
-                        0.0,
-                        max(0.001, rotationParams.z),
-                        penetration);
-                    float upperWeight = saturate(
-                        (height01 - rotationParams.w)
-                        / max(0.001, 1.0 - rotationParams.w));
-                    upperWeight *= upperWeight;
-
-                    float2 directionLS;
-                    if (centerShape.w < 0.5)
+                    if (exclusionParams.x > 0.0001)
                     {
-                        directionLS = localXZ / max(
-                            halfSize.xz * halfSize.xz,
-                            float2(0.0001, 0.0001));
+                        float3 rootNormalizedPosition = EnlynGrassVolumeToLocal(
+                            rootPositionWS,
+                            volumeIndex) * 2.0;
+                        float rootDistance = centerShape.w < 0.5
+                            ? length(rootNormalizedPosition)
+                            : max(
+                                max(abs(rootNormalizedPosition.x), abs(rootNormalizedPosition.y)),
+                                abs(rootNormalizedPosition.z));
+                        float exclusionWeight = 1.0 - smoothstep(
+                            saturate(exclusionParams.y),
+                            1.0,
+                            rootDistance);
+                        totalExclusion = max(
+                            totalExclusion,
+                            exclusionParams.x * exclusionWeight);
                     }
-                    else
-                    {
-                        float2 distanceToFace = halfSize.xz - abs(localXZ);
-                        directionLS = distanceToFace.x < distanceToFace.y
-                            ? float2(localXZ.x >= 0.0 ? 1.0 : -1.0, 0.0)
-                            : float2(0.0, localXZ.y >= 0.0 ? 1.0 : -1.0);
-                    }
-
-                    float directionLengthSq = dot(directionLS, directionLS);
-                    directionLS = directionLengthSq > 0.0001
-                        ? directionLS * rsqrt(directionLengthSq)
-                        : float2(1.0, 0.0);
-                    float2 directionWS = EnlynGrassVolumeToWorld(
-                        directionLS,
-                        rotationParams.x,
-                        rotationParams.y);
-                    totalOffset += directionWS
-                        * halfSizeStrength.w
-                        * volumeWeight
-                        * upperWeight;
                 }
 
-                return totalOffset;
+                return float3(totalOffset, saturate(totalExclusion));
             }
 
             Varyings Vert(Attributes input)
@@ -274,18 +355,150 @@ Shader "AnimeGress/Anime Grass Instanced"
                     ? safeInstanceNormal
                     : objectUpWS;
                 float3 objectOriginWS = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
+                float3 instanceRootPosition = TransformObjectToWorld(_EnlynGrassInstanceRootOS.xyz);
+                [branch]
+                if (_EnlynGrassFaceTarget.w > 0.5)
+                {
+                    #if defined(UNITY_INSTANCING_ENABLED)
+                    float4 instanceBaseRotation = UNITY_ACCESS_INSTANCED_PROP(
+                        EnlynGrassPerInstance,
+                        _InstanceBaseRotation);
+                    #else
+                    float4 instanceBaseRotation = float4(0.0, 0.0, 0.0, 1.0);
+                    #endif
+
+                    float3 targetDirectionWS = _EnlynGrassFaceTarget.xyz - instanceRootPosition;
+                    targetDirectionWS -= grassUpWS * dot(targetDirectionWS, grassUpWS);
+                    float targetDirectionLengthSq = dot(targetDirectionWS, targetDirectionWS);
+                    if (targetDirectionLengthSq > 0.000001)
+                    {
+                        float3 targetForwardWS = targetDirectionWS * rsqrt(targetDirectionLengthSq);
+                        float rotationSin;
+                        float rotationCos;
+                        sincos(_EnlynGrassFaceRotation, rotationSin, rotationCos);
+                        targetForwardWS = normalize(
+                            targetForwardWS * rotationCos
+                            + cross(grassUpWS, targetForwardWS) * rotationSin);
+                        float3 targetRightWS = normalize(cross(grassUpWS, targetForwardWS));
+
+                        positionWS = instanceRootPosition + EnlynFaceTargetVector(
+                            positionWS - instanceRootPosition,
+                            instanceBaseRotation,
+                            targetRightWS,
+                            grassUpWS,
+                            targetForwardWS);
+                        objectOriginWS = instanceRootPosition + EnlynFaceTargetVector(
+                            objectOriginWS - instanceRootPosition,
+                            instanceBaseRotation,
+                            targetRightWS,
+                            grassUpWS,
+                            targetForwardWS);
+                        normalWS = normalize(EnlynFaceTargetVector(
+                            normalWS,
+                            instanceBaseRotation,
+                            targetRightWS,
+                            grassUpWS,
+                            targetForwardWS));
+                        objectUpWS = normalize(EnlynFaceTargetVector(
+                            objectUpWS,
+                            instanceBaseRotation,
+                            targetRightWS,
+                            grassUpWS,
+                            targetForwardWS));
+                        if (instanceNormalLengthSq <= 0.0001)
+                        {
+                            grassUpWS = objectUpWS;
+                        }
+                    }
+                }
                 float3 rootPositionWS = objectOriginWS + grassUpWS * _RootHeight;
                 float height01 = saturate(dot(positionWS - rootPositionWS, grassUpWS) / max(0.001, _BladeHeight));
+
+                [branch]
+                if (_EnlynGrassOverheadBend.x > 0.5
+                    && _EnlynGrassOverheadBend.y > 0.0001
+                    && height01 > 0.0001)
+                {
+                    float3 viewOffsetWS = _EnlynGrassViewPosition.xyz - instanceRootPosition;
+                    float viewDistanceSq = dot(viewOffsetWS, viewOffsetWS);
+                    if (viewDistanceSq > 0.000001)
+                    {
+                        float3 viewDirectionWS = viewOffsetWS * rsqrt(viewDistanceSq);
+                        float viewElevation = saturate(dot(viewDirectionWS, grassUpWS));
+                        float overheadWeight = smoothstep(
+                            _EnlynGrassOverheadBend.z,
+                            _EnlynGrassOverheadBend.w,
+                            viewElevation);
+                        float bendAngle = _EnlynGrassOverheadBend.y * overheadWeight;
+                        float vertexBendAngle = bendAngle * height01;
+                        if (vertexBendAngle > 0.0001)
+                        {
+                            float3 bendDirectionWS = viewDirectionWS
+                                - grassUpWS * dot(viewDirectionWS, grassUpWS);
+                            float bendDirectionLengthSq = dot(bendDirectionWS, bendDirectionWS);
+                            if (bendDirectionLengthSq <= 0.000001)
+                            {
+                                bendDirectionWS = normalWS
+                                    - grassUpWS * dot(normalWS, grassUpWS);
+                                bendDirectionLengthSq = dot(bendDirectionWS, bendDirectionWS);
+                            }
+                            if (bendDirectionLengthSq <= 0.000001)
+                            {
+                                float3 referenceAxis = abs(grassUpWS.y) < 0.99
+                                    ? float3(0.0, 1.0, 0.0)
+                                    : float3(1.0, 0.0, 0.0);
+                                bendDirectionWS = cross(referenceAxis, grassUpWS);
+                                bendDirectionLengthSq = dot(bendDirectionWS, bendDirectionWS);
+                            }
+
+                            bendDirectionWS *= rsqrt(max(0.000001, bendDirectionLengthSq));
+                            float sourceHeight = max(
+                                0.0,
+                                dot(positionWS - rootPositionWS, grassUpWS));
+                            float3 lateralOffsetWS = positionWS
+                                - rootPositionWS
+                                - grassUpWS * sourceHeight;
+                            float bendSin;
+                            float bendCos;
+                            sincos(vertexBendAngle, bendSin, bendCos);
+                            float arcScale = sourceHeight / vertexBendAngle;
+                            float bentHeight = bendSin * arcScale;
+                            float bentOffset = (1.0 - bendCos) * arcScale;
+                            positionWS = rootPositionWS
+                                + lateralOffsetWS
+                                + grassUpWS * bentHeight
+                                + bendDirectionWS * bentOffset;
+
+                            float3 bendAxisWS = normalize(cross(grassUpWS, bendDirectionWS));
+                            normalWS = normalize(EnlynRotateAroundAxis(
+                                normalWS,
+                                bendAxisWS,
+                                vertexBendAngle));
+                        }
+                    }
+                }
 
                 float2 windDirection = _EnlynGrassWind.xy;
                 windDirection = dot(windDirection, windDirection) > 0.0001 ? normalize(windDirection) : float2(1.0, 0.0);
                 float wave = sin(dot(positionWS.xz, windDirection) * _EnlynGrassWindParams.x + _Time.y * _EnlynGrassWind.w);
                 float gust = sin((positionWS.x + positionWS.z) * _EnlynGrassWindParams.z + _Time.y * _EnlynGrassWindParams.w);
+                float windTintWave = sin(
+                    dot(positionWS.xz, windDirection) * _EnlynGrassWindColorParams.x
+                    + _Time.y * _EnlynGrassWindColorParams.y);
+                float windTintGust = sin(
+                    (positionWS.x + positionWS.z) * _EnlynGrassWindColorGustParams.x
+                    + _Time.y * _EnlynGrassWindColorGustParams.y);
+                float windTintSignal = saturate(
+                    (windTintWave + windTintGust * _EnlynGrassWindColorParams.z) * 0.5 + 0.5);
                 float bendMask = height01 * height01;
                 float bend = (wave + gust * _EnlynGrassWindParams.y) * _EnlynGrassWind.z * _WindBend * windWeight * bendMask;
 
                 positionWS.xz += windDirection * bend;
-                positionWS.xz += EnlynGrassVolumeInteraction(positionWS, height01);
+                float3 volumeInteraction = EnlynGrassVolumeInteraction(
+                    positionWS,
+                    objectOriginWS,
+                    height01);
+                positionWS.xz += volumeInteraction.xy;
 
                 if (dot(instanceNormal, instanceNormal) > 0.0001)
                 {
@@ -297,12 +510,15 @@ Shader "AnimeGress/Anime Grass Instanced"
                 vertexColor.a = vertexColor.a > 0.0001h ? vertexColor.a : 1.0h;
 
                 output.positionCS = TransformWorldToHClip(positionWS);
-                output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
+                output.uv.xy = TRANSFORM_TEX(input.uv, _BaseMap);
+                output.uv.zw = TRANSFORM_TEX(input.uv, _AlphaMap);
                 output.normalWS = normalize(normalWS);
                 output.color = vertexColor * instanceColor;
                 output.height01 = height01;
-                output.wind01 = saturate(wave * 0.5 + 0.5);
-                output.fade = instanceFade > 0.0001 ? saturate(instanceFade) : 1.0;
+                output.wind01 = windTintSignal;
+                output.fade = abs(instanceFade) > 0.0001
+                    ? clamp(instanceFade, -1.0, 1.0)
+                    : 1.0;
                 float3 shadowRootPositionWS = objectOriginWS + grassUpWS * max(0.001, _ShadowSampleOffset);
                 float3 shadowSamplePositionWS = lerp(positionWS, shadowRootPositionWS, _GroundShadowSample);
                 output.shadowCoord = TransformWorldToShadowCoord(shadowSamplePositionWS);
@@ -312,6 +528,7 @@ Shader "AnimeGress/Anime Grass Instanced"
                     surfaceCacheUv,
                     AnimeSurfaceCacheContainsUV(surfaceCacheUv),
                     objectOriginWS.y);
+                output.volumeExclusion = volumeInteraction.z;
                 return output;
             }
 
@@ -330,11 +547,30 @@ Shader "AnimeGress/Anime Grass Instanced"
                 half surfaceExclusion = surface.masks.a
                     * surface.valid
                     * _SurfaceCacheExclusionInfluence;
-                half visibleFade = input.fade * saturate(1.0h - surfaceExclusion);
-                clip(visibleFade - EnlynDither(input.positionCS.xy) - 0.0001h);
+                surfaceExclusion = max(surfaceExclusion, input.volumeExclusion);
+                half visibleFade = abs(input.fade) * saturate(1.0h - surfaceExclusion);
+                float ditherThreshold = EnlynDither(input.positionCS.xy);
+                ditherThreshold = input.fade < 0.0h
+                    ? 1.0 - ditherThreshold
+                    : ditherThreshold;
+                clip(visibleFade - ditherThreshold - 0.0001h);
 
-                half4 baseSample = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
-                half alpha = baseSample.a * _BaseColor.a * input.color.a;
+                half4 baseSample = SAMPLE_TEXTURE2D(
+                    _BaseMap,
+                    sampler_BaseMap,
+                    input.uv.xy);
+                half4 alphaSample = SAMPLE_TEXTURE2D(
+                    _AlphaMap,
+                    sampler_AlphaMap,
+                    input.uv.zw);
+                half alphaMask = lerp(
+                    alphaSample.r,
+                    alphaSample.a,
+                    step(0.5h, _AlphaMapChannel));
+                half alpha = baseSample.a
+                    * alphaMask
+                    * _BaseColor.a
+                    * input.color.a;
                 clip(alpha - _Cutoff);
 
                 half3 fullGradient = lerp(_RootColor.rgb, _TipColor.rgb, input.height01);
@@ -371,7 +607,10 @@ Shader "AnimeGress/Anime Grass Instanced"
                 half shadowVisibility = lerp(1.0h, shadowAttenuation, receiveShadowStrength);
                 half lightVisibility = saturate(lightAmount * shadowVisibility * mainLight.distanceAttenuation);
 
-                half windTintMask = lerp(1.0h, input.wind01, _WindTintSpatialVariation);
+                half windTintMask = lerp(
+                    1.0h,
+                    input.wind01,
+                    _WindTintSpatialVariation * saturate(_EnlynGrassWindColorParams.w));
                 half debugView = round(_DebugView);
                 if (debugView == 1.0h)
                 {
