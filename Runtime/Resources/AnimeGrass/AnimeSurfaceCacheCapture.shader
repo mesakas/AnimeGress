@@ -1,4 +1,4 @@
-Shader "Hidden/AnimeGress/Surface Cache Capture"
+Shader "Hidden/AnimeGrass/Surface Cache Capture"
 {
     Properties
     {

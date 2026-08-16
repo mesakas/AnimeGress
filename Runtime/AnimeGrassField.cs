@@ -903,7 +903,7 @@ namespace Enlyn.Grass
             }
 
             AnimeSurfaceCache.BindForCamera(renderCamera, commandBuffer);
-            GressVolume.ApplyGrassInteractionGlobals(commandBuffer);
+            GrassVolume.ApplyGrassInteractionGlobals(commandBuffer);
             RenderGrass(renderCamera, commandBuffer);
         }
 

@@ -15,11 +15,11 @@ namespace Enlyn.Grass
     [ExecuteAlways]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(AnimeGrassField))]
-    [AddComponentMenu("AnimeGress/远景草覆盖")]
+    [AddComponentMenu("AnimeGrass/远景草覆盖")]
     public sealed class AnimeGrassFarField : MonoBehaviour
     {
-        private const string OverlayShaderResource = "AnimeGress/AnimeGrassFarFieldOverlay";
-        private const string OverlayShaderName = "Hidden/AnimeGress/Far Field Overlay";
+        private const string OverlayShaderResource = "AnimeGrass/AnimeGrassFarFieldOverlay";
+        private const string OverlayShaderName = "Hidden/AnimeGrass/Far Field Overlay";
         private static readonly List<AnimeGrassFarField> ActiveFarFields = new List<AnimeGrassFarField>();
         private static readonly int CoverageTextureId = Shader.PropertyToID("_AnimeGrassFarCoverageTexture");
         private static readonly int HeightTextureId = Shader.PropertyToID("_AnimeGrassFarHeightTexture");
@@ -894,13 +894,13 @@ namespace Enlyn.Grass
             }
             if (shader == null)
             {
-                Debug.LogError("[AnimeGress] 找不到远景草覆盖 Shader。", this);
+                Debug.LogError("[AnimeGrass] 找不到远景草覆盖 Shader。", this);
                 return false;
             }
 
             overlayMaterial = new Material(shader)
             {
-                name = "AnimeGress Far Field Overlay (Runtime)",
+                name = "AnimeGrass Far Field Overlay (Runtime)",
                 hideFlags = HideFlags.HideAndDontSave
             };
             return true;

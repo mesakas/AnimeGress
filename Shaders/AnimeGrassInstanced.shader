@@ -1,4 +1,4 @@
-Shader "AnimeGress/Anime Grass Instanced"
+Shader "AnimeGrass/Anime Grass Instanced"
 {
     Properties
     {
@@ -75,7 +75,7 @@ Shader "AnimeGress/Anime Grass Instanced"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
-            #include "Packages/com.ming.animegress/Shaders/AnimeSurfaceCache.hlsl"
+            #include "Packages/com.ming.animegrass/Shaders/AnimeSurfaceCache.hlsl"
 
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);

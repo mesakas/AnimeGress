@@ -16,7 +16,7 @@ namespace Enlyn.Grass.Editor
             EditorApplication.delayCall += QueueAutoRepair;
         }
 
-        [MenuItem("AnimeGress/诊断并修复草资源")]
+        [MenuItem("AnimeGrass/诊断并修复草资源")]
         public static void DiagnoseAndRepairMenu()
         {
             DiagnoseAndRepair(true);
@@ -62,7 +62,7 @@ namespace Enlyn.Grass.Editor
 
             if (verbose || repairedCount > 0 || missingMeshCount > 0)
             {
-                Debug.Log("[AnimeGress] 草资源诊断完成。草类型: " + prototypeGuids.Length
+                Debug.Log("[AnimeGrass] 草资源诊断完成。草类型: " + prototypeGuids.Length
                     + "，已修复: " + repairedCount
                     + "，仍缺 Mesh: " + missingMeshCount);
             }
@@ -94,7 +94,7 @@ namespace Enlyn.Grass.Editor
                 {
                     if (verbose)
                     {
-                        Debug.LogWarning("[AnimeGress] " + prototypePath + " 的 LOD " + lodIndex
+                        Debug.LogWarning("[AnimeGrass] " + prototypePath + " 的 LOD " + lodIndex
                             + " 缺少 Mesh，且同目录没有唯一可自动绑定的 FBX Mesh。", prototype);
                     }
 
@@ -113,7 +113,7 @@ namespace Enlyn.Grass.Editor
 
                 changed = true;
                 missingMeshCount--;
-                Debug.Log("[AnimeGress] 已修复 " + prototypePath + " 的 LOD " + lodIndex
+                Debug.Log("[AnimeGrass] 已修复 " + prototypePath + " 的 LOD " + lodIndex
                     + " Mesh -> " + AssetDatabase.GetAssetPath(replacement) + " / " + replacement.name, prototype);
             }
 
@@ -160,7 +160,7 @@ namespace Enlyn.Grass.Editor
                 return null;
             }
 
-            string[] materialGuids = AssetDatabase.FindAssets("Gress t:Material", new[] { folder.Replace('\\', '/') });
+            string[] materialGuids = AssetDatabase.FindAssets("Grass t:Material", new[] { folder.Replace('\\', '/') });
             if (materialGuids.Length == 0)
             {
                 materialGuids = AssetDatabase.FindAssets("t:Material", new[] { folder.Replace('\\', '/') });

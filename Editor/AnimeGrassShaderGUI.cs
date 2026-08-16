@@ -78,8 +78,8 @@ namespace Enlyn.Grass.Editor
 
         private static void CreateSurfaceCache()
         {
-            GameObject cacheObject = new GameObject("AnimeGress 地表属性缓存");
-            Undo.RegisterCreatedObjectUndo(cacheObject, "创建 AnimeGress 地表属性缓存");
+            GameObject cacheObject = new GameObject("AnimeGrass 地表属性缓存");
+            Undo.RegisterCreatedObjectUndo(cacheObject, "创建 AnimeGrass 地表属性缓存");
             AnimeSurfaceCache cache = cacheObject.AddComponent<AnimeSurfaceCache>();
             if (SceneView.lastActiveSceneView != null)
             {

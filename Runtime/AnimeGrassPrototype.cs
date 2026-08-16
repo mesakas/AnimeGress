@@ -124,7 +124,7 @@ namespace Enlyn.Grass
 
     }
 
-    [CreateAssetMenu(menuName = "AnimeGress/草类型配置", fileName = "AnimeGrassPrototype")]
+    [CreateAssetMenu(menuName = "AnimeGrass/草类型配置", fileName = "AnimeGrassPrototype")]
     public sealed class AnimeGrassPrototype : ScriptableObject
     {
         [SerializeField]

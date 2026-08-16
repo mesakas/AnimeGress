@@ -18,8 +18,8 @@ namespace Enlyn.Grass
     [DisallowMultipleComponent]
     public sealed class AnimeSurfaceCache : MonoBehaviour
     {
-        private const string CaptureShaderResource = "AnimeGress/AnimeSurfaceCacheCapture";
-        private const string CaptureShaderName = "Hidden/AnimeGress/Surface Cache Capture";
+        private const string CaptureShaderResource = "AnimeGrass/AnimeSurfaceCacheCapture";
+        private const string CaptureShaderName = "Hidden/AnimeGrass/Surface Cache Capture";
 
         private static readonly List<AnimeSurfaceCache> ActiveCacheList = new List<AnimeSurfaceCache>();
         private static readonly int CacheColorTextureId = Shader.PropertyToID("_AnimeSurfaceCacheColorTexture");
@@ -414,7 +414,7 @@ namespace Enlyn.Grass
                 captureHeight + 0.2f);
             projectionMatrix = GL.GetGPUProjectionMatrix(projectionMatrix, true);
 
-            CommandBuffer commandBuffer = CommandBufferPool.Get("AnimeGress Surface Cache");
+            CommandBuffer commandBuffer = CommandBufferPool.Get("AnimeGrass Surface Cache");
             RenderTargetIdentifier colorTarget = colorTexture;
             RenderTargetIdentifier dataTarget = dataTexture;
             RenderTargetIdentifier maskTarget = maskTexture;
@@ -576,7 +576,7 @@ namespace Enlyn.Grass
             RenderTargetIdentifier maskTarget)
         {
             lastStampCount = 0;
-            IReadOnlyList<GressVolume> volumes = GressVolume.ActiveVolumes;
+            IReadOnlyList<GrassVolume> volumes = GrassVolume.ActiveVolumes;
             if (volumes.Count == 0)
             {
                 return;
@@ -588,7 +588,7 @@ namespace Enlyn.Grass
             commandBuffer.SetGlobalTexture(StampColorTextureId, colorTexture);
             for (int i = 0; i < volumes.Count; i++)
             {
-                GressVolume volume = volumes[i];
+                GrassVolume volume = volumes[i];
                 Vector4 stampMask = volume != null ? volume.SurfaceMask : Vector4.zero;
                 if (volume == null
                     || !volume.isActiveAndEnabled
@@ -603,7 +603,7 @@ namespace Enlyn.Grass
                 commandBuffer.SetGlobalVector(
                     StampParamsId,
                     new Vector4(
-                        volume.Shape == GressVolumeShape.Sphere ? 0f : 1f,
+                        volume.Shape == GrassVolumeShape.Sphere ? 0f : 1f,
                         volume.Hardness,
                         0f,
                         0f));
@@ -837,7 +837,7 @@ namespace Enlyn.Grass
             {
                 ReleaseTextures();
                 colorTexture = CreateTexture(
-                    "AnimeGress Surface Color",
+                    "AnimeGrass Surface Color",
                     safeResolution,
                     RenderTextureFormat.ARGB32,
                     RenderTextureReadWrite.sRGB,
@@ -847,21 +847,21 @@ namespace Enlyn.Grass
                     ? RenderTextureFormat.ARGBHalf
                     : RenderTextureFormat.ARGB32;
                 dataTexture = CreateTexture(
-                    "AnimeGress Surface Normal Height",
+                    "AnimeGrass Surface Normal Height",
                     safeResolution,
                     dataFormat,
                     RenderTextureReadWrite.Linear,
                     0,
                     true);
                 maskTexture = CreateTexture(
-                    "AnimeGress Surface Masks",
+                    "AnimeGrass Surface Masks",
                     safeResolution,
                     RenderTextureFormat.ARGB32,
                     RenderTextureReadWrite.Linear,
                     0,
                     true);
                 depthTexture = CreateTexture(
-                    "AnimeGress Surface Depth",
+                    "AnimeGrass Surface Depth",
                     safeResolution,
                     RenderTextureFormat.Depth,
                     RenderTextureReadWrite.Linear,
@@ -883,7 +883,7 @@ namespace Enlyn.Grass
                 {
                     if (!loggedMissingShader)
                     {
-                        Debug.LogError("[AnimeGress] Surface cache capture shader is missing.", this);
+                        Debug.LogError("[AnimeGrass] Surface cache capture shader is missing.", this);
                         loggedMissingShader = true;
                     }
 
@@ -892,7 +892,7 @@ namespace Enlyn.Grass
 
                 captureMaterial = new Material(captureShader)
                 {
-                    name = "AnimeGress Surface Cache Capture (Runtime)",
+                    name = "AnimeGrass Surface Cache Capture (Runtime)",
                     hideFlags = HideFlags.HideAndDontSave
                 };
                 captureMaterial.SetFloat(
@@ -941,7 +941,7 @@ namespace Enlyn.Grass
         {
             Mesh mesh = new Mesh
             {
-                name = "AnimeGress Surface Stamp Quad",
+                name = "AnimeGrass Surface Stamp Quad",
                 hideFlags = HideFlags.HideAndDontSave,
                 vertices = new[]
                 {

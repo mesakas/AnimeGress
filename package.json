@@ -1,7 +1,7 @@
 {
-  "name": "com.ming.animegress",
+  "name": "com.ming.animegrass",
   "version": "1.0.0",
-  "displayName": "AnimeGress",
+  "displayName": "AnimeGrass",
   "description": "A deterministic stylized grass painting and GPU-instanced rendering toolkit for Unity URP.",
   "unity": "6000.0",
   "dependencies": {

@@ -359,7 +359,7 @@ namespace Enlyn.Grass.Editor
             }
 
             StringBuilder builder = new StringBuilder();
-            builder.AppendLine("[AnimeGress] 草场诊断: " + field.name);
+            builder.AppendLine("[AnimeGrass] 草场诊断: " + field.name);
             builder.AppendLine("实例数: " + field.InstanceCount);
             builder.AppendLine("最近渲染相机: " + field.LastRenderCameraName);
             builder.AppendLine("最近渲染帧: " + field.LastRenderFrame);
@@ -534,7 +534,7 @@ namespace Enlyn.Grass.Editor
 
     public static class AnimeGrassEditorMenus
     {
-        [MenuItem("GameObject/AnimeGress/二次元草场", false, 10)]
+        [MenuItem("GameObject/AnimeGrass/二次元草场", false, 10)]
         private static void CreateGrassField(MenuCommand command)
         {
             GameObject go = new GameObject("二次元草场");
@@ -549,7 +549,7 @@ namespace Enlyn.Grass.Editor
             Selection.activeGameObject = go;
         }
 
-        [MenuItem("Window/AnimeGress/草场铺设工具")]
+        [MenuItem("Window/AnimeGrass/草场铺设工具")]
         private static void OpenPainter()
         {
             AnimeGrassPainterWindow.Open(null);

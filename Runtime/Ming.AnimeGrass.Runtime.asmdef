@@ -1,12 +1,11 @@
 {
-  "name": "Ming.AnimeGress.Editor",
-  "rootNamespace": "Enlyn.Grass.Editor",
+  "name": "Ming.AnimeGrass.Runtime",
+  "rootNamespace": "Enlyn.Grass",
   "references": [
-    "Ming.AnimeGress.Runtime"
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime"
   ],
-  "includePlatforms": [
-    "Editor"
-  ],
+  "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,
   "overrideReferences": false,

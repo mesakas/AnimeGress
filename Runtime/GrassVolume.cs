@@ -6,8 +6,8 @@ using UnityEngine.Serialization;
 
 namespace Enlyn.Grass
 {
-    [MovedFrom(true, sourceNamespace: "Enlyn.Grass", sourceAssembly: "Ming.AnimeGress.Runtime", sourceClassName: "AnimeSurfaceCacheStampShape")]
-    public enum GressVolumeShape
+    [MovedFrom(true, sourceNamespace: "Enlyn.Grass", sourceAssembly: "Ming.AnimeGrass.Runtime", sourceClassName: "AnimeSurfaceCacheStampShape")]
+    public enum GrassVolumeShape
     {
         Sphere,
         Box
@@ -15,13 +15,13 @@ namespace Enlyn.Grass
 
     [ExecuteAlways]
     [DisallowMultipleComponent]
-    [AddComponentMenu("AnimeGress/GressVolume")]
-    [MovedFrom(true, sourceNamespace: "Enlyn.Grass", sourceAssembly: "Ming.AnimeGress.Runtime", sourceClassName: "AnimeSurfaceCacheStamp")]
-    public sealed class GressVolume : MonoBehaviour
+    [AddComponentMenu("AnimeGrass/GrassVolume")]
+    [MovedFrom(true, sourceNamespace: "Enlyn.Grass", sourceAssembly: "Ming.AnimeGrass.Runtime", sourceClassName: "AnimeSurfaceCacheStamp")]
+    public sealed class GrassVolume : MonoBehaviour
     {
         private const int CurrentSerializationVersion = 1;
         public const int MaxGrassInteractionVolumes = 16;
-        private static readonly List<GressVolume> ActiveVolumeList = new List<GressVolume>();
+        private static readonly List<GrassVolume> ActiveVolumeList = new List<GrassVolume>();
         private static readonly int InteractionVolumeCountId = Shader.PropertyToID("_EnlynGrassInteractionVolumeCount");
         private static readonly int InteractionVolumeCenterShapeId = Shader.PropertyToID("_EnlynGrassInteractionVolumeCenterShape");
         private static readonly int InteractionVolumeParamsId = Shader.PropertyToID("_EnlynGrassInteractionVolumeParams");
@@ -37,7 +37,7 @@ namespace Enlyn.Grass
         private static readonly Vector4[] InteractionVolumeWorldToLocal2 = new Vector4[MaxGrassInteractionVolumes];
 
         [SerializeField]
-        private GressVolumeShape shape = GressVolumeShape.Sphere;
+        private GrassVolumeShape shape = GrassVolumeShape.Sphere;
 
         [SerializeField, HideInInspector]
         private Vector2 size = new Vector2(2f, 2f);
@@ -90,13 +90,13 @@ namespace Enlyn.Grass
 
         private Matrix4x4 lastLocalToWorld;
         private Vector4 lastMask;
-        private GressVolumeShape lastShape;
+        private GrassVolumeShape lastShape;
         private float lastHardness;
         private Vector4 lastGrassInteraction;
         private Vector4 lastExclusionInteraction;
 
-        internal static IReadOnlyList<GressVolume> ActiveVolumes => ActiveVolumeList;
-        public GressVolumeShape Shape => shape;
+        internal static IReadOnlyList<GrassVolume> ActiveVolumes => ActiveVolumeList;
+        public GrassVolumeShape Shape => shape;
         public float Hardness => hardness;
         public Vector4 SurfaceMask => new Vector4(
             0f,
@@ -236,7 +236,7 @@ namespace Enlyn.Grass
                  volumeIndex < ActiveVolumeList.Count && volumeCount < MaxGrassInteractionVolumes;
                  volumeIndex++)
             {
-                GressVolume volume = ActiveVolumeList[volumeIndex];
+                GrassVolume volume = ActiveVolumeList[volumeIndex];
                 bool usesRealtimeExclusion = volume != null && volume.UsesRealtimeExclusion;
                 if (volume == null
                     || !volume.isActiveAndEnabled
@@ -253,7 +253,7 @@ namespace Enlyn.Grass
                     center.x,
                     center.y,
                     center.z,
-                    volume.shape == GressVolumeShape.Sphere ? 0f : 1f);
+                    volume.shape == GrassVolumeShape.Sphere ? 0f : 1f);
                 InteractionVolumeParams[volumeCount] = new Vector4(
                     volume.repelGrass ? volume.grassRepulsionStrength : 0f,
                     volume.grassRepulsionFalloff,
@@ -439,7 +439,7 @@ namespace Enlyn.Grass
 
         private void DrawVolume(bool wireframe)
         {
-            if (shape == GressVolumeShape.Sphere)
+            if (shape == GrassVolumeShape.Sphere)
             {
                 if (wireframe)
                 {

@@ -120,7 +120,7 @@ namespace Enlyn.Grass.Editor
                     Undo.RecordObject(target, "匹配远景草覆盖距离");
                     if (!((AnimeGrassFarField)target).MatchTransitionToLastLod())
                     {
-                        Debug.LogWarning("[AnimeGress] 没有找到结束距离大于 0 的草 LOD。", target);
+                        Debug.LogWarning("[AnimeGrass] 没有找到结束距离大于 0 的草 LOD。", target);
                     }
                     serializedObject.Update();
                     EditorUtility.SetDirty(target);

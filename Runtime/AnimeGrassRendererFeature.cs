@@ -54,7 +54,7 @@ namespace Enlyn.Grass
                 CommandBuffer commandBuffer = CommandBufferPool.Get();
                 using (new ProfilingScope(commandBuffer, ProfilingSampler))
                 {
-                    GressVolume.ApplyGrassInteractionGlobals(commandBuffer);
+                    GrassVolume.ApplyGrassInteractionGlobals(commandBuffer);
                     AnimeGrassFarField.RenderAll(renderCamera, commandBuffer);
                     AnimeGrassField.MarkRenderedByRendererFeature(renderCamera);
                     var fields = AnimeGrassField.ActiveFields;

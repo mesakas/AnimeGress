@@ -1,4 +1,4 @@
-Shader "Hidden/AnimeGress/Far Field Overlay"
+Shader "Hidden/AnimeGrass/Far Field Overlay"
 {
     SubShader
     {

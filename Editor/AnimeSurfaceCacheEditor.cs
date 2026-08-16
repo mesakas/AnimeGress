@@ -280,17 +280,17 @@ namespace Enlyn.Grass.Editor
             }
         }
 
-        [MenuItem("GameObject/AnimeGress/地表属性缓存", false, 11)]
+        [MenuItem("GameObject/AnimeGrass/地表属性缓存", false, 11)]
         private static void CreateSurfaceCache(MenuCommand command)
         {
-            GameObject cacheObject = new GameObject("AnimeGress 地表属性缓存");
+            GameObject cacheObject = new GameObject("AnimeGrass 地表属性缓存");
             GameObjectUtility.SetParentAndAlign(cacheObject, command.context as GameObject);
-            Undo.RegisterCreatedObjectUndo(cacheObject, "创建 AnimeGress 地表属性缓存");
+            Undo.RegisterCreatedObjectUndo(cacheObject, "创建 AnimeGrass 地表属性缓存");
             cacheObject.AddComponent<AnimeSurfaceCache>();
             Selection.activeGameObject = cacheObject;
         }
 
-        [MenuItem("GameObject/AnimeGress/GressVolume", false, 12)]
+        [MenuItem("GameObject/AnimeGrass/GrassVolume", false, 12)]
         private static void CreateSurfaceStamp(MenuCommand command)
         {
             Vector3 position = SceneView.lastActiveSceneView != null
@@ -301,12 +301,12 @@ namespace Enlyn.Grass.Editor
 
         private static void CreateStamp(Vector3 position, GameObject parent = null)
         {
-            GameObject stampObject = new GameObject("GressVolume");
+            GameObject stampObject = new GameObject("GrassVolume");
             GameObjectUtility.SetParentAndAlign(stampObject, parent);
             stampObject.transform.position = position;
             stampObject.transform.localScale = Vector3.one * 2f;
-            Undo.RegisterCreatedObjectUndo(stampObject, "创建 GressVolume");
-            stampObject.AddComponent<GressVolume>();
+            Undo.RegisterCreatedObjectUndo(stampObject, "创建 GrassVolume");
+            stampObject.AddComponent<GrassVolume>();
             Selection.activeGameObject = stampObject;
         }
 
@@ -373,8 +373,8 @@ namespace Enlyn.Grass.Editor
         }
     }
 
-    [CustomEditor(typeof(GressVolume))]
-    public sealed class GressVolumeEditor : UnityEditor.Editor
+    [CustomEditor(typeof(GrassVolume))]
+    public sealed class GrassVolumeEditor : UnityEditor.Editor
     {
         private static readonly string[] ShapeNames = { "球形 Volume", "盒形 Volume" };
 
@@ -386,7 +386,7 @@ namespace Enlyn.Grass.Editor
             EditorGUILayout.PropertyField(serializedObject.FindProperty("hardness"), new GUIContent("边缘硬度"));
 
             EditorGUILayout.HelpBox(
-                "GressVolume 的位置、三轴旋转和尺寸完全由 Transform 控制；Scale X/Y/Z 分别对应本地三轴尺寸。静态模式按缓存地表高度写入遮罩，实时模式直接在 GPU 中检查草根或远景地表位置。",
+                "GrassVolume 的位置、三轴旋转和尺寸完全由 Transform 控制；Scale X/Y/Z 分别对应本地三轴尺寸。静态模式按缓存地表高度写入遮罩，实时模式直接在 GPU 中检查草根或远景地表位置。",
                 MessageType.Info);
 
             EditorGUILayout.Space(8f);
@@ -426,7 +426,7 @@ namespace Enlyn.Grass.Editor
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty("renderInEditMode"), new GUIContent("编辑模式生效"));
 
-            GressVolume volume = (GressVolume)target;
+            GrassVolume volume = (GrassVolume)target;
             EditorGUILayout.HelpBox(
                 volume.UsesRealtimeExclusion
                     ? "当前排除草使用实时 GPU Volume，会跟随 Transform 和父级 Camera 移动，不需要重建地表缓存。草叶推动同样实时生效；最多同时处理 16 个实时 Volume。"
@@ -458,7 +458,7 @@ namespace Enlyn.Grass.Editor
             }
         }
 
-        internal static void DrawOverlayHandles(GressVolume volume)
+        internal static void DrawOverlayHandles(GrassVolume volume)
         {
             CompareFunction previousZTest = Handles.zTest;
             Handles.zTest = CompareFunction.Always;
@@ -488,7 +488,7 @@ namespace Enlyn.Grass.Editor
         }
 
         private static void DrawVolumeHandle(
-            GressVolume volume,
+            GrassVolume volume,
             float scale,
             Color color)
         {
@@ -496,7 +496,7 @@ namespace Enlyn.Grass.Editor
                 * Matrix4x4.Scale(Vector3.one * scale);
             using (new Handles.DrawingScope(color, matrix))
             {
-                if (volume.Shape == GressVolumeShape.Sphere)
+                if (volume.Shape == GrassVolumeShape.Sphere)
                 {
                     Handles.DrawWireDisc(Vector3.zero, Vector3.right, 0.5f);
                     Handles.DrawWireDisc(Vector3.zero, Vector3.up, 0.5f);
@@ -509,7 +509,7 @@ namespace Enlyn.Grass.Editor
             }
         }
 
-        private static Color GetOuterHandleColor(GressVolume volume)
+        private static Color GetOuterHandleColor(GrassVolume volume)
         {
             bool hasExclusion = volume.Exclusion > 0.0001f;
             bool hasRepulsion = volume.RepelGrass && volume.GrassRepulsionStrength > 0.0001f;
@@ -531,9 +531,9 @@ namespace Enlyn.Grass.Editor
     }
 
     [InitializeOnLoad]
-    internal static class GressVolumeSceneOverlay
+    internal static class GrassVolumeSceneOverlay
     {
-        static GressVolumeSceneOverlay()
+        static GrassVolumeSceneOverlay()
         {
             SceneView.duringSceneGui -= DrawVisibleVolumes;
             SceneView.duringSceneGui += DrawVisibleVolumes;
@@ -546,10 +546,10 @@ namespace Enlyn.Grass.Editor
                 return;
             }
 
-            var volumes = GressVolume.ActiveVolumes;
+            var volumes = GrassVolume.ActiveVolumes;
             for (int volumeIndex = 0; volumeIndex < volumes.Count; volumeIndex++)
             {
-                GressVolume volume = volumes[volumeIndex];
+                GrassVolume volume = volumes[volumeIndex];
                 bool isSelected = volume != null && Selection.Contains(volume.gameObject);
                 if (volume == null
                     || !volume.isActiveAndEnabled
@@ -558,7 +558,7 @@ namespace Enlyn.Grass.Editor
                     continue;
                 }
 
-                GressVolumeEditor.DrawOverlayHandles(volume);
+                GrassVolumeEditor.DrawOverlayHandles(volume);
             }
         }
     }

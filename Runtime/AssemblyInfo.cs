@@ -1,4 +1,4 @@
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("Ming.AnimeGress.Editor")]
-[assembly: InternalsVisibleTo("Ming.AnimeGress.Editor.Tests")]
+[assembly: InternalsVisibleTo("Ming.AnimeGrass.Editor")]
+[assembly: InternalsVisibleTo("Ming.AnimeGrass.Editor.Tests")]
