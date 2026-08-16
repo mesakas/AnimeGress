@@ -292,6 +292,11 @@ namespace Enlyn.Grass
             }
         }
 
+        internal static void DisableGrassInteractionGlobals(CommandBuffer commandBuffer)
+        {
+            commandBuffer.SetGlobalFloat(InteractionVolumeCountId, 0f);
+        }
+
         private void UpgradeSerializedData()
         {
             if (serializationVersion >= CurrentSerializationVersion)

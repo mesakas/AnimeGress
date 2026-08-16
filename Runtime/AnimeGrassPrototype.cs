@@ -266,9 +266,108 @@ namespace Enlyn.Grass
 
         public float EvaluateLodDitherFade(int lodIndex, Vector3 cameraOffset)
         {
+            return EvaluateLodDitherFadeFromProgress(
+                lodIndex,
+                EvaluateLodProgress(cameraOffset, cameraOffset.magnitude));
+        }
+
+        internal int GetLodSubmissions(
+            Vector3 cameraOffset,
+            float spatialDistance,
+            out int firstLodIndex,
+            out float firstFade,
+            out int secondLodIndex,
+            out float secondFade)
+        {
+            firstLodIndex = -1;
+            firstFade = 0f;
+            secondLodIndex = -1;
+            secondFade = 0f;
+
+            if (lods == null || lods.Length == 0)
+            {
+                return 0;
+            }
+
+            float lodProgress = EvaluateLodProgress(cameraOffset, spatialDistance);
+            int activeLodIndex = Mathf.FloorToInt(lodProgress);
+            if (activeLodIndex < 0 || activeLodIndex >= lods.Length)
+            {
+                return 0;
+            }
+
+            int submissionCount = 0;
+            float transition = Mathf.Clamp01(lodProgress - activeLodIndex);
+            if (IsLodActive(activeLodIndex))
+            {
+                firstLodIndex = activeLodIndex;
+                firstFade = 1f - transition;
+                submissionCount++;
+            }
+
+            int nextLodIndex = activeLodIndex + 1;
+            if (transition > 0f && IsLodActive(nextLodIndex))
+            {
+                if (submissionCount == 0)
+                {
+                    firstLodIndex = nextLodIndex;
+                    firstFade = -transition;
+                }
+                else
+                {
+                    secondLodIndex = nextLodIndex;
+                    secondFade = -transition;
+                }
+
+                submissionCount++;
+            }
+
+            return submissionCount;
+        }
+
+        internal bool TryGetFiniteMaxRenderDistances(out float primaryDistance, out float zDistance)
+        {
+            primaryDistance = 0f;
+            zDistance = 0f;
+            if (lods == null)
+            {
+                return true;
+            }
+
+            int lastActiveLodIndex = GetLastActiveLodIndex();
+            for (int i = 0; i <= lastActiveLodIndex; i++)
+            {
+                AnimeGrassLod lod = lods[i];
+                if (lod == null || !lod.IsRenderable)
+                {
+                    continue;
+                }
+
+                if (lod.endDistance <= 0f)
+                {
+                    return false;
+                }
+
+                primaryDistance = Mathf.Max(primaryDistance, lod.endDistance);
+                if (lodDistanceMode == AnimeGrassLodDistanceMode.SeparateXYAndZ)
+                {
+                    if (lod.zEndDistance <= 0f)
+                    {
+                        return false;
+                    }
+
+                    zDistance = Mathf.Max(zDistance, lod.zEndDistance);
+                }
+            }
+
+            return true;
+        }
+
+        private float EvaluateLodProgress(Vector3 cameraOffset, float spatialDistance)
+        {
             if (lodDistanceMode == AnimeGrassLodDistanceMode.SpatialDistance)
             {
-                return EvaluateLodDitherFade(lodIndex, cameraOffset.magnitude);
+                return EvaluateAxisLodProgress(Mathf.Max(0f, spatialDistance), false);
             }
 
             float xyDistance = Mathf.Sqrt(
@@ -276,7 +375,7 @@ namespace Enlyn.Grass
                 + cameraOffset.y * cameraOffset.y);
             if (lodDistanceMode == AnimeGrassLodDistanceMode.XYDistanceOnly)
             {
-                return EvaluateLodDitherFade(lodIndex, xyDistance);
+                return EvaluateAxisLodProgress(xyDistance, false);
             }
 
             if (lodDistanceMode == AnimeGrassLodDistanceMode.XZDistanceOnly)
@@ -284,14 +383,13 @@ namespace Enlyn.Grass
                 float xzDistance = Mathf.Sqrt(
                     cameraOffset.x * cameraOffset.x
                     + cameraOffset.z * cameraOffset.z);
-                return EvaluateLodDitherFade(lodIndex, xzDistance);
+                return EvaluateAxisLodProgress(xzDistance, false);
             }
 
             float zDistance = Mathf.Abs(cameraOffset.z);
-            float lodProgress = Mathf.Max(
+            return Mathf.Max(
                 EvaluateAxisLodProgress(xyDistance, false),
                 EvaluateAxisLodProgress(zDistance, true));
-            return EvaluateLodDitherFadeFromProgress(lodIndex, lodProgress);
         }
 
         private float EvaluateAxisLodProgress(float distance, bool useZAxis)
