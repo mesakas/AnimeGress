@@ -1,14 +1,14 @@
-# AnimeGress
+# AnimeGrass
 
-AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、单株编辑、GPU Instancing、LOD 点状渐隐、全局风场、风场颜色变化、阴影和视锥剔除，并包含地表属性缓存、三维排除/推动 Volume 与远景颜色及伪阴影覆盖。
+AnimeGrass 是面向 Unity URP 的风格化草系统。它提供手工铺设、单株编辑、GPU Instancing、LOD 点状渐隐、全局风场、风场颜色变化、阴影和视锥剔除，并包含地表属性缓存、三维排除/推动 Volume 与远景颜色及伪阴影覆盖。
 
 当前包版本为 `1.0.0`，Git 发布标签为 `v1.0`。
 
 ## 效果预览
 
-![AnimeGress 风格化草场效果](Documentation~/demo.gif)
+![Animegrass 风格化草场效果](Documentation~/demo.gif)
 
-![AnimeGress 草场铺设工具与配置界面](Documentation~/animegress-editor-tools.png)
+![Animegrass 草场铺设工具与配置界面](Documentation~/animegrass-editor-tools.png)
 
 ## 系统组成
 
@@ -21,7 +21,7 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 - `AnimeGrassInstanced.shader`：提供风格化颜色、风动、点状渐隐和阴影处理。
 - `AnimeSurfaceCache`：捕获固定世界范围内的地表颜色、世界法线、高度和排除草遮罩。
 - `AnimeSurfaceCacheSource`：覆盖特殊材质的捕获贴图、颜色和排除草遮罩。
-- `GressVolume`：负责在球形或盒形三维范围内排除草和实时推动草叶。
+- `grassVolume`：负责在球形或盒形三维范围内排除草和实时推动草叶。
 
 ## 环境要求
 
@@ -32,7 +32,7 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 ## 安装
 
-本项目已经以嵌入式包方式安装在 `Packages/com.ming.animegress`。
+本项目已经以嵌入式包方式安装在 `Packages/com.ming.animegrass`。
 
 可以在 Package Manager 中使用 Git URL 安装，并在 URL 末尾指定 `#v1.0`。也可以选择 **Add package from disk**，然后选择本目录的 `package.json`。
 
@@ -45,17 +45,17 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 ## 快速开始
 
 1. 在 URP Renderer Data 的 Renderer Features 中添加 `AnimeGrassRendererFeature`。
-2. 使用 `GameObject > AnimeGress > 二次元草场` 创建草场。
-3. 使用 `Assets > Create > AnimeGress > 草类型配置` 创建草类型。
+2. 使用 `GameObject > Animegrass > 二次元草场` 创建草场。
+3. 使用 `Assets > Create > Animegrass > 草类型配置` 创建草类型。
 4. 为每个 LOD 指定 Mesh、Material、显示距离和渐隐距离。
-5. 使用 `Window > AnimeGress > 草场铺设工具` 铺设、删除或编辑单株草。
+5. 使用 `Window > Animegrass > 草场铺设工具` 铺设、删除或编辑单株草。
 6. 在场景中添加 `AnimeGrassWindZone`，分别控制全局风向、草叶摆动和风色波纹。
 
 `游戏 LOD 参考摄像机` 可以留空。留空时每个摄像机使用自身位置计算 LOD；指定后只影响游戏摄像机的 LOD 距离，不限制 Scene 视图或其他摄像机显示。
 
 ## 草材质贴图
 
-`AnimeGress/Anime Grass Instanced` 同时支持基础贴图自带 Alpha 和独立 Alpha 贴图。不需要基础贴图时，将“基础贴图”留空，只指定“独立 Alpha 贴图”；草叶颜色会继续由基础颜色、根部颜色、顶部颜色和实例颜色生成。
+`Animegrass/Anime Grass Instanced` 同时支持基础贴图自带 Alpha 和独立 Alpha 贴图。不需要基础贴图时，将“基础贴图”留空，只指定“独立 Alpha 贴图”；草叶颜色会继续由基础颜色、根部颜色、顶部颜色和实例颜色生成。
 
 - `Alpha 贴图通道 = R`：读取灰度图的红色通道，适合黑白遮罩。建议在贴图导入设置中关闭 `sRGB (Color Texture)`。
 - `Alpha 贴图通道 = Alpha`：读取 PNG/TGA 等贴图自带的透明通道。
@@ -82,11 +82,11 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 第一级 LOD 的开始距离固定为 `0`，后续级会自动连接到上一级的结束距离。从 LOD N 切换到 LOD N+1 时，两级会在 LOD N 的“渐隐距离”内同时提交。旧级使用正向随机点阵逐步削减，新级使用互补点阵填充被移除的位置，不使用半透明混合。`渐隐距离 = 0` 时仍会立即切换。运行时和 Scene 编辑预览使用相同规则。
 
-自定义草 Shader 需要支持有符号的 `_InstanceFade`：正值使用正向点阵，负值使用反向点阵。使用内置 `AnimeGress/Anime Grass Instanced` 时无需额外处理。
+自定义草 Shader 需要支持有符号的 `_InstanceFade`：正值使用正向点阵，负值使用反向点阵。使用内置 `Animegrass/Anime Grass Instanced` 时无需额外处理。
 
 “始终面向观察目标”按 LOD 单独配置，适合远距离的单面片或少量交叉面片草。启用后，实例会绕各自的草根法线旋转，因此斜坡上的草仍保持贴合地表。完整模型草通常保持关闭。
 
-草场组件的“草面片朝向目标”可以指定玩家角色或其他 Transform；为空时使用当前渲染相机。Game 视图可以面向角色目标，Scene 视图始终使用自己的 Scene 相机，以便从任意编辑视角正确查看面片。朝向在 CPU 构建实例矩阵时计算，不要求材质使用 AnimeGress Shader。
+草场组件的“草面片朝向目标”可以指定玩家角色或其他 Transform；为空时使用当前渲染相机。Game 视图可以面向角色目标，Scene 视图始终使用自己的 Scene 相机，以便从任意编辑视角正确查看面片。朝向在 CPU 构建实例矩阵时计算，不要求材质使用 Animegrass Shader。
 
 每个草类型还提供独立的“距离密度”配置。LOD 决定使用哪个 Mesh，距离密度决定在对应距离实际保留多少株草：
 
@@ -161,14 +161,14 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 ## 用户资源
 
-草模型、材质、草类型配置和场景属于项目内容，不属于插件代码。它们可以放在任意 `Assets` 子目录。当前项目的演示内容保留在 `Assets/Enlyn/Gress/Demo`。
+草模型、材质、草类型配置和场景属于项目内容，不属于插件代码。它们可以放在任意 `Assets` 子目录。当前项目的演示内容保留在 `Assets/Enlyn/grass/Demo`。
 
 ## API 兼容性
 
 为保持已有项目兼容，公开类型继续使用 `Enlyn.Grass` 命名空间。包程序集名称为：
 
-- `Ming.AnimeGress.Runtime`
-- `Ming.AnimeGress.Editor`
+- `Ming.Animegrass.Runtime`
+- `Ming.Animegrass.Editor`
 
 ## 地表属性缓存
 
@@ -180,7 +180,7 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 ### 创建和配置
 
-1. 使用 `GameObject > AnimeGress > 地表属性缓存` 创建缓存对象。
+1. 使用 `GameObject > Animegrass > 地表属性缓存` 创建缓存对象。
 2. 将对象放到需要覆盖区域的中心，设置 `世界范围 XZ`、`垂直捕获高度` 和 `缓存分辨率`。
 3. 设置 `地表 Layer`。缓存只捕获这些 Layer 上的 `MeshRenderer`、`SkinnedMeshRenderer` 和 Unity `Terrain`。
 4. 点击 `立即重建缓存`，在 Inspector 的三张缓存预览中检查结果。
@@ -198,7 +198,7 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 ### 更新模式
 
-- `变化时更新`：缓存对象、`AnimeSurfaceCacheSource`、`GressVolume` 或编辑器层级/资源发生变化时更新，适合静态场景。
+- `变化时更新`：缓存对象、`AnimeSurfaceCacheSource`、`grassVolume` 或编辑器层级/资源发生变化时更新，适合静态场景。
 - `定时更新`：按指定秒数更新，也会立即响应已登记的变化，适合少量动态地表。
 - `每帧更新`：每帧完整重建，成本最高，只适合较小缓存或必须实时变化的场景。
 - `仅手动更新`：只通过 Inspector 按钮或 `RefreshNow()` 更新，适合完全静态的确定性场景。
@@ -207,7 +207,7 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 ### 草场 Volume 交互
 
-使用 `GameObject > AnimeGress > GressVolume` 创建球形或盒形三维区域。位置、旋转和尺寸全部由对象的 `Transform` 控制，`Scale X/Y/Z` 分别对应 Volume 的本地三轴尺寸，三轴旋转均会作用于实际遮罩范围。
+使用 `GameObject > Animegrass > grassVolume` 创建球形或盒形三维区域。位置、旋转和尺寸全部由对象的 `Transform` 控制，`Scale X/Y/Z` 分别对应 Volume 的本地三轴尺寸，三轴旋转均会作用于实际遮罩范围。
 
 - `排除草强度`：`0` 不移除，`1` 完全移除 Volume 内的草。
 - `实时跟随 Transform`：通过实时 GPU Volume 排除真实草和远景覆盖，不写入静态地表缓存，适合角色、载具和移动相机。Volume 位于 Camera 或其子对象上时会自动启用实时模式。
@@ -226,7 +226,7 @@ AnimeGress 是面向 Unity URP 的风格化草系统。它提供手工铺设、�
 
 `高度匹配容差` 用于多层场景。只有缓存中的最高表面高度与草根高度足够接近时，草才会读取该表面的颜色、法线和遮罩，因此上层平台不会错误影响下层草。需要更严格地区分楼层时减小该值。
 
-其他自定义 Shader 可以包含 `Packages/com.ming.animegress/Shaders/AnimeSurfaceCache.hlsl`，使用 `AnimeSurfaceCacheWorldToUV`、`AnimeSurfaceCacheContainsUV` 和 `SampleAnimeSurfaceCache` 读取同一份数据。
+其他自定义 Shader 可以包含 `Packages/com.ming.animegrass/Shaders/AnimeSurfaceCache.hlsl`，使用 `AnimeSurfaceCacheWorldToUV`、`AnimeSurfaceCacheContainsUV` 和 `SampleAnimeSurfaceCache` 读取同一份数据。
 
 1024 分辨率缓存的显存占用约为 25 MiB，包含颜色、半精度法线/高度、遮罩、深度和 Mipmap。实际值会随平台支持的 RenderTexture 格式变化。固定缓存不会进行虚拟分页，超大世界应等待后续 Clipmap 或完整 RVT。
 
