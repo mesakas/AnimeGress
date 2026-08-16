@@ -72,6 +72,9 @@ Shader "AnimeGrass/Anime Grass Instanced"
             #pragma multi_compile_fog
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ ENLYN_GRASS_DISABLE_SURFACE_CACHE
+            #pragma multi_compile _ ENLYN_GRASS_DISABLE_INTERACTION
+            #pragma multi_compile _ ENLYN_GRASS_DISABLE_SHADOWS
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -129,14 +132,16 @@ Shader "AnimeGrass/Anime Grass Instanced"
             float4 _EnlynGrassViewPosition;
             float4 _EnlynGrassOverheadBend;
 
-            #define ENLYN_GRASS_MAX_INTERACTION_VOLUMES 16
-            float _EnlynGrassInteractionVolumeCount;
-            float4 _EnlynGrassInteractionVolumeCenterShape[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeExclusionParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeWorldToLocal0[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeWorldToLocal1[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeWorldToLocal2[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
+                #define ENLYN_GRASS_MAX_INTERACTION_VOLUMES 16
+                float _EnlynGrassInteractionVolumeCount;
+                float4 _EnlynGrassInteractionVolumeCenterShape[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeExclusionParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeWorldToLocal0[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeWorldToLocal1[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeWorldToLocal2[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            #endif
 
             UNITY_INSTANCING_BUFFER_START(EnlynGrassPerInstance)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _InstanceColor)
@@ -165,9 +170,15 @@ Shader "AnimeGrass/Anime Grass Instanced"
                 half wind01 : TEXCOORD4;
                 half fade : TEXCOORD5;
                 half fogFactor : TEXCOORD6;
-                float4 shadowCoord : TEXCOORD7;
-                float4 surfaceCacheUvValidHeight : TEXCOORD8;
-                half volumeExclusion : TEXCOORD9;
+                #if !defined(ENLYN_GRASS_DISABLE_SHADOWS)
+                    float4 shadowCoord : TEXCOORD7;
+                #endif
+                #if !defined(ENLYN_GRASS_DISABLE_SURFACE_CACHE)
+                    float4 surfaceCacheUvValidHeight : TEXCOORD8;
+                #endif
+                #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
+                    half volumeExclusion : TEXCOORD9;
+                #endif
             };
 
             float EnlynDither(float2 pixelPosition)
@@ -212,6 +223,7 @@ Shader "AnimeGrass/Anime Grass Instanced"
                     + axis * dot(axis, value) * (1.0 - rotationCos);
             }
 
+            #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
             float3 EnlynGrassVolumeToLocal(float3 positionWS, int volumeIndex)
             {
                 float4 position = float4(positionWS, 1.0);
@@ -321,6 +333,7 @@ Shader "AnimeGrass/Anime Grass Instanced"
 
                 return float3(totalOffset, saturate(totalExclusion));
             }
+            #endif
 
             Varyings Vert(Attributes input)
             {
@@ -494,11 +507,13 @@ Shader "AnimeGrass/Anime Grass Instanced"
                 float bend = (wave + gust * _EnlynGrassWindParams.y) * _EnlynGrassWind.z * _WindBend * windWeight * bendMask;
 
                 positionWS.xz += windDirection * bend;
-                float3 volumeInteraction = EnlynGrassVolumeInteraction(
-                    positionWS,
-                    objectOriginWS,
-                    height01);
-                positionWS.xz += volumeInteraction.xy;
+                #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
+                    float3 volumeInteraction = EnlynGrassVolumeInteraction(
+                        positionWS,
+                        objectOriginWS,
+                        height01);
+                    positionWS.xz += volumeInteraction.xy;
+                #endif
 
                 if (dot(instanceNormal, instanceNormal) > 0.0001)
                 {
@@ -519,35 +534,46 @@ Shader "AnimeGrass/Anime Grass Instanced"
                 output.fade = abs(instanceFade) > 0.0001
                     ? clamp(instanceFade, -1.0, 1.0)
                     : 1.0;
-                float3 shadowRootPositionWS = objectOriginWS + grassUpWS * max(0.001, _ShadowSampleOffset);
-                float3 shadowSamplePositionWS = lerp(positionWS, shadowRootPositionWS, _GroundShadowSample);
-                output.shadowCoord = TransformWorldToShadowCoord(shadowSamplePositionWS);
                 output.fogFactor = ComputeFogFactor(output.positionCS.z);
-                float2 surfaceCacheUv = AnimeSurfaceCacheWorldToUV(objectOriginWS);
-                output.surfaceCacheUvValidHeight = float4(
-                    surfaceCacheUv,
-                    AnimeSurfaceCacheContainsUV(surfaceCacheUv),
-                    objectOriginWS.y);
-                output.volumeExclusion = volumeInteraction.z;
+                #if !defined(ENLYN_GRASS_DISABLE_SHADOWS)
+                    float3 shadowRootPositionWS = objectOriginWS + grassUpWS * max(0.001, _ShadowSampleOffset);
+                    float3 shadowSamplePositionWS = lerp(positionWS, shadowRootPositionWS, _GroundShadowSample);
+                    output.shadowCoord = TransformWorldToShadowCoord(shadowSamplePositionWS);
+                #endif
+                #if !defined(ENLYN_GRASS_DISABLE_SURFACE_CACHE)
+                    float2 surfaceCacheUv = AnimeSurfaceCacheWorldToUV(objectOriginWS);
+                    output.surfaceCacheUvValidHeight = float4(
+                        surfaceCacheUv,
+                        AnimeSurfaceCacheContainsUV(surfaceCacheUv),
+                        objectOriginWS.y);
+                #endif
+                #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
+                    output.volumeExclusion = volumeInteraction.z;
+                #endif
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
-                AnimeSurfaceCacheSample surface = SampleAnimeSurfaceCache(
-                    input.surfaceCacheUvValidHeight.xy,
-                    input.surfaceCacheUvValidHeight.z);
-                float cachedSurfaceHeight = _AnimeSurfaceCacheHeightParams.x
-                    + surface.height01 / max(0.0001, _AnimeSurfaceCacheHeightParams.y);
-                half heightMatch = 1.0h - smoothstep(
-                    _SurfaceCacheHeightTolerance * 0.5,
-                    _SurfaceCacheHeightTolerance,
-                    abs(cachedSurfaceHeight - input.surfaceCacheUvValidHeight.w));
-                surface.valid *= heightMatch;
-                half surfaceExclusion = surface.masks.a
-                    * surface.valid
-                    * _SurfaceCacheExclusionInfluence;
-                surfaceExclusion = max(surfaceExclusion, input.volumeExclusion);
+                half surfaceExclusion = 0.0h;
+                #if !defined(ENLYN_GRASS_DISABLE_SURFACE_CACHE)
+                    AnimeSurfaceCacheSample surface = SampleAnimeSurfaceCache(
+                        input.surfaceCacheUvValidHeight.xy,
+                        input.surfaceCacheUvValidHeight.z);
+                    float cachedSurfaceHeight = _AnimeSurfaceCacheHeightParams.x
+                        + surface.height01 / max(0.0001, _AnimeSurfaceCacheHeightParams.y);
+                    half heightMatch = 1.0h - smoothstep(
+                        _SurfaceCacheHeightTolerance * 0.5,
+                        _SurfaceCacheHeightTolerance,
+                        abs(cachedSurfaceHeight - input.surfaceCacheUvValidHeight.w));
+                    surface.valid *= heightMatch;
+                    surfaceExclusion = surface.masks.a
+                        * surface.valid
+                        * _SurfaceCacheExclusionInfluence;
+                #endif
+                #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
+                    surfaceExclusion = max(surfaceExclusion, input.volumeExclusion);
+                #endif
                 half visibleFade = abs(input.fade) * saturate(1.0h - surfaceExclusion);
                 float ditherThreshold = EnlynDither(input.positionCS.xy);
                 ditherThreshold = input.fade < 0.0h
@@ -578,31 +604,39 @@ Shader "AnimeGrass/Anime Grass Instanced"
                 half3 gradient = lerp(stableGradient, fullGradient, _GradientStrength);
                 half3 albedo = baseSample.rgb * _BaseColor.rgb * input.color.rgb * gradient;
 
-                half rootWeight = lerp(1.0h, 1.0h - input.height01, _SurfaceCacheRootOnly);
-                half surfaceWeight = surface.valid * rootWeight;
-                albedo = lerp(
-                    albedo,
-                    surface.color,
-                    saturate(surfaceWeight * _SurfaceCacheColorInfluence));
-                albedo *= 1.0h - surface.masks.r * surfaceWeight * _SurfaceCacheWetnessInfluence * 0.4h;
-                albedo = lerp(
-                    albedo,
-                    _SurfaceCacheSnowColor.rgb,
-                    surface.masks.g * surfaceWeight * _SurfaceCacheSnowInfluence);
-                albedo = lerp(
-                    albedo,
-                    _SurfaceCacheBurnColor.rgb,
-                    surface.masks.b * surfaceWeight * _SurfaceCacheBurnInfluence);
+                half3 lightingNormalWS = normalize(input.normalWS);
+                #if !defined(ENLYN_GRASS_DISABLE_SURFACE_CACHE)
+                    half rootWeight = lerp(1.0h, 1.0h - input.height01, _SurfaceCacheRootOnly);
+                    half surfaceWeight = surface.valid * rootWeight;
+                    albedo = lerp(
+                        albedo,
+                        surface.color,
+                        saturate(surfaceWeight * _SurfaceCacheColorInfluence));
+                    albedo *= 1.0h - surface.masks.r * surfaceWeight * _SurfaceCacheWetnessInfluence * 0.4h;
+                    albedo = lerp(
+                        albedo,
+                        _SurfaceCacheSnowColor.rgb,
+                        surface.masks.g * surfaceWeight * _SurfaceCacheSnowInfluence);
+                    albedo = lerp(
+                        albedo,
+                        _SurfaceCacheBurnColor.rgb,
+                        surface.masks.b * surfaceWeight * _SurfaceCacheBurnInfluence);
+                    lightingNormalWS = normalize(lerp(
+                        input.normalWS,
+                        surface.normalWS,
+                        surfaceWeight * _SurfaceCacheNormalInfluence));
+                #endif
 
-                Light mainLight = GetMainLight(input.shadowCoord);
-                half3 lightingNormalWS = normalize(lerp(
-                    input.normalWS,
-                    surface.normalWS,
-                    surfaceWeight * _SurfaceCacheNormalInfluence));
+                #if defined(ENLYN_GRASS_DISABLE_SHADOWS)
+                    Light mainLight = GetMainLight();
+                    half shadowAttenuation = 1.0h;
+                #else
+                    Light mainLight = GetMainLight(input.shadowCoord);
+                    half shadowAttenuation = mainLight.shadowAttenuation;
+                    shadowAttenuation = saturate((shadowAttenuation - _ShadowLeakReduction) / max(0.001h, 1.0h - _ShadowLeakReduction));
+                #endif
                 half lightAmount = abs(dot(lightingNormalWS, mainLight.direction));
                 lightAmount = smoothstep(0.25h, 0.82h, lightAmount);
-                half shadowAttenuation = mainLight.shadowAttenuation;
-                shadowAttenuation = saturate((shadowAttenuation - _ShadowLeakReduction) / max(0.001h, 1.0h - _ShadowLeakReduction));
                 half receiveShadowStrength = _ReceiveShadowStrength * _BatchReceiveShadows;
                 half shadowVisibility = lerp(1.0h, shadowAttenuation, receiveShadowStrength);
                 half lightVisibility = saturate(lightAmount * shadowVisibility * mainLight.distanceAttenuation);

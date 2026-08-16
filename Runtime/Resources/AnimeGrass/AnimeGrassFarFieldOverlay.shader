@@ -25,6 +25,9 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
             #pragma multi_compile_fog
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            #pragma multi_compile _ ENLYN_GRASS_DISABLE_INTERACTION
+            #pragma multi_compile _ ENLYN_GRASS_DISABLE_SHADOWS
+            #pragma multi_compile _ ENLYN_GRASS_DISABLE_FAR_PATTERN
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
@@ -49,14 +52,16 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
             half4 _AnimeGrassFarShadowColor;
             half4 _AnimeGrassFarLightingParams;
 
-            #define ENLYN_GRASS_MAX_INTERACTION_VOLUMES 16
-            float _EnlynGrassInteractionVolumeCount;
-            float4 _EnlynGrassInteractionVolumeCenterShape[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeExclusionParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeWorldToLocal0[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeWorldToLocal1[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
-            float4 _EnlynGrassInteractionVolumeWorldToLocal2[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
+                #define ENLYN_GRASS_MAX_INTERACTION_VOLUMES 16
+                float _EnlynGrassInteractionVolumeCount;
+                float4 _EnlynGrassInteractionVolumeCenterShape[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeExclusionParams[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeWorldToLocal0[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeWorldToLocal1[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+                float4 _EnlynGrassInteractionVolumeWorldToLocal2[ENLYN_GRASS_MAX_INTERACTION_VOLUMES];
+            #endif
 
             struct Attributes
             {
@@ -86,6 +91,7 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
                 #endif
             }
 
+            #if !defined(ENLYN_GRASS_DISABLE_FAR_PATTERN)
             float EnlynPatternHash(float2 position)
             {
                 float3 value = frac(float3(position.xyx) * 0.1031);
@@ -108,6 +114,7 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
                     local.x);
                 return lerp(bottom, top, local.y);
             }
+            #endif
 
             float EnlynFarFieldDither(float2 pixelPosition)
             {
@@ -115,6 +122,7 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
                 return frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
             }
 
+            #if !defined(ENLYN_GRASS_DISABLE_FAR_PATTERN)
             float EnlynPatternFbm(float2 position)
             {
                 float value = EnlynPatternNoise(position) * 0.5;
@@ -128,7 +136,9 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
                 value += EnlynPatternNoise(position) * 0.2;
                 return value;
             }
+            #endif
 
+            #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
             half EnlynFarFieldVolumeExclusion(float3 positionWS)
             {
                 half totalExclusion = 0.0h;
@@ -167,6 +177,7 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
 
                 return saturate(totalExclusion);
             }
+            #endif
 
             half4 Frag(Varyings input) : SV_Target
             {
@@ -260,95 +271,104 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
                     (_AnimeGrassFarDistanceParams.y - cameraDistance)
                     * _AnimeGrassFarDistanceParams.w);
 
-                float2 patternDirection = _AnimeGrassFarPatternParams.xy;
-                patternDirection = dot(patternDirection, patternDirection) > 0.0001
-                    ? normalize(patternDirection)
-                    : float2(1.0, 0.0);
-                half patternEnabled = saturate(_AnimeGrassFarPatternParams.z);
-                float patternTravel = _Time.y * max(0.0, _AnimeGrassFarPatternParams.w);
-                half irregularity = saturate(_AnimeGrassFarDisturbanceParams.x);
                 half patternSignal = 1.0h;
                 half breakupMask = 1.0h;
                 float warpB = 0.5;
-                [branch]
-                if (patternEnabled > 0.0001h)
-                {
-                    float2 safeWorldToUvScale = max(
-                        abs(_AnimeGrassFarWorldToUV.xy),
-                        float2(0.000001, 0.000001));
-                    float2 coverageCenter = (0.5 - _AnimeGrassFarWorldToUV.zw)
-                        / safeWorldToUvScale;
-                    float2 localPatternPosition = positionWS.xz - coverageCenter;
-                    float2 perpendicularDirection = float2(-patternDirection.y, patternDirection.x);
-                    float alongPattern = dot(localPatternPosition, patternDirection);
-                    float acrossPattern = dot(localPatternPosition, perpendicularDirection);
+                half patternEnabled = 0.0h;
+                half irregularity = 0.0h;
+                #if !defined(ENLYN_GRASS_DISABLE_FAR_PATTERN)
+                    float2 patternDirection = _AnimeGrassFarPatternParams.xy;
+                    patternDirection = dot(patternDirection, patternDirection) > 0.0001
+                        ? normalize(patternDirection)
+                        : float2(1.0, 0.0);
+                    patternEnabled = saturate(_AnimeGrassFarPatternParams.z);
+                    float patternTravel = _Time.y * max(0.0, _AnimeGrassFarPatternParams.w);
+                    irregularity = saturate(_AnimeGrassFarDisturbanceParams.x);
+                    [branch]
+                    if (patternEnabled > 0.0001h)
+                    {
+                        float2 safeWorldToUvScale = max(
+                            abs(_AnimeGrassFarWorldToUV.xy),
+                            float2(0.000001, 0.000001));
+                        float2 coverageCenter = (0.5 - _AnimeGrassFarWorldToUV.zw)
+                            / safeWorldToUvScale;
+                        float2 localPatternPosition = positionWS.xz - coverageCenter;
+                        float2 perpendicularDirection = float2(-patternDirection.y, patternDirection.x);
+                        float alongPattern = dot(localPatternPosition, patternDirection);
+                        float acrossPattern = dot(localPatternPosition, perpendicularDirection);
 
-                    float noiseScale = max(0.0001, _AnimeGrassFarDisturbanceParams.y);
-                    float2 noiseDrift = patternDirection * patternTravel;
-                    float2 noisePosition = (localPatternPosition + noiseDrift) * noiseScale;
-                    float warpA = EnlynPatternFbm(noisePosition + float2(11.7, -4.3));
-                    warpB = EnlynPatternFbm(
-                        noisePosition * 0.67
-                        + float2(warpA * 2.1, -warpA * 1.6)
-                        + float2(-7.2, 13.4));
-                    float breakupNoise = EnlynPatternFbm(
-                        noisePosition * 0.43
-                        - noiseDrift * noiseScale * 0.31
-                        + float2(23.1, 5.8));
+                        float noiseScale = max(0.0001, _AnimeGrassFarDisturbanceParams.y);
+                        float2 noiseDrift = patternDirection * patternTravel;
+                        float2 noisePosition = (localPatternPosition + noiseDrift) * noiseScale;
+                        float warpA = EnlynPatternFbm(noisePosition + float2(11.7, -4.3));
+                        warpB = EnlynPatternFbm(
+                            noisePosition * 0.67
+                            + float2(warpA * 2.1, -warpA * 1.6)
+                            + float2(-7.2, 13.4));
+                        float breakupNoise = EnlynPatternFbm(
+                            noisePosition * 0.43
+                            - noiseDrift * noiseScale * 0.31
+                            + float2(23.1, 5.8));
 
-                    float waveFrequency = max(0.0001, _AnimeGrassFarRippleParams.y);
-                    float waveSpacing = 6.28318530718 / waveFrequency;
-                    float curveScale = max(1.0, _AnimeGrassFarRippleParams.z);
-                    float curveCoordinate = acrossPattern / curveScale;
-                    float curveOffset = (
-                        sin(curveCoordinate * 1.37 + warpB * 3.1 + 0.4) * 0.42
-                        + (warpA - 0.5) * 1.65 * irregularity)
-                        * waveSpacing
-                        * saturate(_AnimeGrassFarRippleParams.x);
-                    float warpedDistance = alongPattern
-                        + curveOffset
-                        + (warpB - 0.5) * waveSpacing * 1.55 * irregularity;
-                    float primaryPhase = (warpedDistance + patternTravel) * waveFrequency;
-                    half primaryWave = sin(primaryPhase);
+                        float waveFrequency = max(0.0001, _AnimeGrassFarRippleParams.y);
+                        float waveSpacing = 6.28318530718 / waveFrequency;
+                        float curveScale = max(1.0, _AnimeGrassFarRippleParams.z);
+                        float curveCoordinate = acrossPattern / curveScale;
+                        float curveOffset = (
+                            sin(curveCoordinate * 1.37 + warpB * 3.1 + 0.4) * 0.42
+                            + (warpA - 0.5) * 1.65 * irregularity)
+                            * waveSpacing
+                            * saturate(_AnimeGrassFarRippleParams.x);
+                        float warpedDistance = alongPattern
+                            + curveOffset
+                            + (warpB - 0.5) * waveSpacing * 1.55 * irregularity;
+                        float primaryPhase = (warpedDistance + patternTravel) * waveFrequency;
+                        half primaryWave = sin(primaryPhase);
 
-                    float diagonalDistance = alongPattern * 0.56 + acrossPattern * 0.24;
-                    float secondaryPhase = (
-                        diagonalDistance
-                        + patternTravel * 0.63
-                        + (warpA - 0.5) * waveSpacing * 1.8)
-                        * waveFrequency * 0.72 + 2.1;
-                    half secondaryWave = sin(secondaryPhase);
-                    half combinedWave = lerp(
-                        primaryWave,
-                        primaryWave * 0.55h + secondaryWave * 0.45h,
-                        irregularity * 0.82h);
-                    patternSignal = saturate(combinedWave * 0.5h + 0.5h);
-                    patternSignal = saturate(
-                        patternSignal
-                        + (warpA * 0.55 + warpB * 0.45 - 0.5)
-                        * irregularity
-                        * 0.9h);
-                    patternSignal = smoothstep(0.16h, 0.84h, patternSignal);
-                    breakupMask = smoothstep(0.16h, 0.8h, breakupNoise);
-                    patternSignal *= lerp(
-                        1.0h,
-                        lerp(0.3h, 1.15h, breakupMask),
-                        irregularity * 0.78h);
-                    patternSignal = saturate(patternSignal);
-                }
+                        float diagonalDistance = alongPattern * 0.56 + acrossPattern * 0.24;
+                        float secondaryPhase = (
+                            diagonalDistance
+                            + patternTravel * 0.63
+                            + (warpA - 0.5) * waveSpacing * 1.8)
+                            * waveFrequency * 0.72 + 2.1;
+                        half secondaryWave = sin(secondaryPhase);
+                        half combinedWave = lerp(
+                            primaryWave,
+                            primaryWave * 0.55h + secondaryWave * 0.45h,
+                            irregularity * 0.82h);
+                        patternSignal = saturate(combinedWave * 0.5h + 0.5h);
+                        patternSignal = saturate(
+                            patternSignal
+                            + (warpA * 0.55 + warpB * 0.45 - 0.5)
+                            * irregularity
+                            * 0.9h);
+                        patternSignal = smoothstep(0.16h, 0.84h, patternSignal);
+                        breakupMask = smoothstep(0.16h, 0.8h, breakupNoise);
+                        patternSignal *= lerp(
+                            1.0h,
+                            lerp(0.3h, 1.15h, breakupMask),
+                            irregularity * 0.78h);
+                        patternSignal = saturate(patternSignal);
+                    }
+                #endif
 
                 half3 coverageColor = coverage.rgb / max(coverage.a, 0.0001h);
                 half3 farColor = coverageColor;
 
-                float4 shadowCoord = TransformWorldToShadowCoord(
-                    positionWS + surfaceNormal * 0.04);
-                Light mainLight = GetMainLight(shadowCoord);
+                #if defined(ENLYN_GRASS_DISABLE_SHADOWS)
+                    Light mainLight = GetMainLight();
+                    half shadowVisibility = 1.0h;
+                #else
+                    float4 shadowCoord = TransformWorldToShadowCoord(
+                        positionWS + surfaceNormal * 0.04);
+                    Light mainLight = GetMainLight(shadowCoord);
+                    half shadowVisibility = lerp(
+                        1.0h,
+                        mainLight.shadowAttenuation,
+                        saturate(_AnimeGrassFarLightingParams.y));
+                #endif
                 half lightAmount = abs(dot(surfaceNormal, mainLight.direction));
                 lightAmount = smoothstep(0.25h, 0.82h, lightAmount);
-                half shadowVisibility = lerp(
-                    1.0h,
-                    mainLight.shadowAttenuation,
-                    saturate(_AnimeGrassFarLightingParams.y));
                 half lightVisibility = saturate(
                     lightAmount
                     * shadowVisibility
@@ -393,7 +413,10 @@ Shader "Hidden/AnimeGrass/Far Field Overlay"
                     patternShadowColor,
                     saturate(shadowBand));
 
-                half volumeExclusion = EnlynFarFieldVolumeExclusion(positionWS);
+                half volumeExclusion = 0.0h;
+                #if !defined(ENLYN_GRASS_DISABLE_INTERACTION)
+                    volumeExclusion = EnlynFarFieldVolumeExclusion(positionWS);
+                #endif
 
                 half visibility = saturate(coverage.a
                     * _AnimeGrassFarAppearanceParams.x
