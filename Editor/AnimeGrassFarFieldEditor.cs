@@ -7,7 +7,15 @@ namespace Enlyn.Grass.Editor
     [CustomEditor(typeof(AnimeGrassFarField))]
     public sealed class AnimeGrassFarFieldEditor : UnityEditor.Editor
     {
+        private static readonly string[] DistanceModeNames =
+        {
+            "三维距离",
+            "仅 XY 距离（忽略 Z）",
+            "仅水平 XZ 距离（忽略高度 Y）"
+        };
+
         private SerializedProperty farFieldEnabled;
+        private SerializedProperty distanceMode;
         private SerializedProperty transitionStartDistance;
         private SerializedProperty transitionEndDistance;
         private SerializedProperty fadeOutStartDistance;
@@ -41,6 +49,7 @@ namespace Enlyn.Grass.Editor
         private void OnEnable()
         {
             farFieldEnabled = serializedObject.FindProperty("farFieldEnabled");
+            distanceMode = serializedObject.FindProperty("distanceMode");
             transitionStartDistance = serializedObject.FindProperty("transitionStartDistance");
             transitionEndDistance = serializedObject.FindProperty("transitionEndDistance");
             fadeOutStartDistance = serializedObject.FindProperty("fadeOutStartDistance");
@@ -85,6 +94,12 @@ namespace Enlyn.Grass.Editor
             {
                 EditorGUILayout.Space(6f);
                 EditorGUILayout.LabelField("过渡距离", EditorStyles.boldLabel);
+                distanceMode.enumValueIndex = EditorGUILayout.Popup(
+                    new GUIContent(
+                        "距离计算模式",
+                        "应与草类型的 LOD 距离模式保持一致，确保真实草和远景覆盖在同一距离完成交接。"),
+                    distanceMode.enumValueIndex,
+                    DistanceModeNames);
                 EditorGUILayout.PropertyField(
                     transitionStartDistance,
                     new GUIContent("覆盖开始距离", "从这个相机距离开始逐渐显示地表覆盖，通常应略早于最后一级 LOD 的结束距离。"));

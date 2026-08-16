@@ -7,7 +7,9 @@ namespace Enlyn.Grass
     public enum AnimeGrassLodDistanceMode
     {
         SpatialDistance = 0,
-        SeparateXYAndZ = 1
+        SeparateXYAndZ = 1,
+        XYDistanceOnly = 2,
+        XZDistanceOnly = 3
     }
 
     [Serializable]
@@ -136,6 +138,12 @@ namespace Enlyn.Grass
         [SerializeField]
         private AnimeGrassLodDistanceMode lodDistanceMode;
 
+        [SerializeField]
+        private bool replaceDistantLodsWithFarField;
+
+        [SerializeField, Min(0)]
+        private int lastMeshLodIndex;
+
         [SerializeField, HideInInspector]
         private bool separateAxisDistancesInitialized;
 
@@ -180,6 +188,8 @@ namespace Enlyn.Grass
 
         public AnimeGrassLod[] Lods => lods;
         public AnimeGrassLodDistanceMode LodDistanceMode => lodDistanceMode;
+        public bool ReplaceDistantLodsWithFarField => replaceDistantLodsWithFarField;
+        public int LastMeshLodIndex => GetLastActiveLodIndex();
         public float WindWeight => windWeight;
         public Color DefaultInstanceColor => defaultInstanceColor;
         public Vector3 ModelPositionOffset => modelPositionOffset;
@@ -264,6 +274,19 @@ namespace Enlyn.Grass
             float xyDistance = Mathf.Sqrt(
                 cameraOffset.x * cameraOffset.x
                 + cameraOffset.y * cameraOffset.y);
+            if (lodDistanceMode == AnimeGrassLodDistanceMode.XYDistanceOnly)
+            {
+                return EvaluateLodDitherFade(lodIndex, xyDistance);
+            }
+
+            if (lodDistanceMode == AnimeGrassLodDistanceMode.XZDistanceOnly)
+            {
+                float xzDistance = Mathf.Sqrt(
+                    cameraOffset.x * cameraOffset.x
+                    + cameraOffset.z * cameraOffset.z);
+                return EvaluateLodDitherFade(lodIndex, xzDistance);
+            }
+
             float zDistance = Mathf.Abs(cameraOffset.z);
             float lodProgress = Mathf.Max(
                 EvaluateAxisLodProgress(xyDistance, false),
@@ -327,6 +350,11 @@ namespace Enlyn.Grass
                 return 0f;
             }
 
+            if (!IsLodActive(lodIndex))
+            {
+                return 0f;
+            }
+
             int activeLodIndex = Mathf.FloorToInt(lodProgress);
             if (activeLodIndex < 0 || activeLodIndex >= lods.Length)
             {
@@ -355,7 +383,8 @@ namespace Enlyn.Grass
                 return maxDistance;
             }
 
-            for (int i = 0; i < lods.Length; i++)
+            int lastActiveLodIndex = GetLastActiveLodIndex();
+            for (int i = 0; i <= lastActiveLodIndex; i++)
             {
                 AnimeGrassLod lod = lods[i];
                 if (lod == null || !lod.IsRenderable)
@@ -384,6 +413,26 @@ namespace Enlyn.Grass
             return maxDistance;
         }
 
+        public bool IsLodActive(int lodIndex)
+        {
+            return lods != null
+                && lodIndex >= 0
+                && lodIndex < lods.Length
+                && (!replaceDistantLodsWithFarField || lodIndex <= GetLastActiveLodIndex());
+        }
+
+        private int GetLastActiveLodIndex()
+        {
+            if (lods == null || lods.Length == 0)
+            {
+                return -1;
+            }
+
+            return replaceDistantLodsWithFarField
+                ? Mathf.Clamp(lastMeshLodIndex, 0, lods.Length - 1)
+                : lods.Length - 1;
+        }
+
         private void OnValidate()
         {
             nearDistanceDensity = Mathf.Clamp01(nearDistanceDensity);
@@ -410,6 +459,10 @@ namespace Enlyn.Grass
             {
                 return;
             }
+
+            lastMeshLodIndex = lods.Length > 0
+                ? Mathf.Clamp(lastMeshLodIndex, 0, lods.Length - 1)
+                : 0;
 
             bool initializeSeparateAxisDistances = !separateAxisDistancesInitialized;
             AnimeGrassLod previousLod = null;

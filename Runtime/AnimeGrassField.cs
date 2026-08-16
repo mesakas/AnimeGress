@@ -590,6 +590,11 @@ namespace Enlyn.Grass
                 AnimeGrassLod[] lods = prototype.Lods;
                 for (int lodIndex = 0; lodIndex < lods.Length; lodIndex++)
                 {
+                    if (!prototype.IsLodActive(lodIndex))
+                    {
+                        continue;
+                    }
+
                     AnimeGrassLod lod = lods[lodIndex];
                     if (lod == null || !IsMaterialUsable(lod.material))
                     {
@@ -998,6 +1003,11 @@ namespace Enlyn.Grass
                 bool drewEditPreviewLod = false;
                 for (int lodIndex = 0; lodIndex < lods.Length; lodIndex++)
                 {
+                    if (!prototype.IsLodActive(lodIndex))
+                    {
+                        continue;
+                    }
+
                     AnimeGrassLod lod = lods[lodIndex];
                     if (lod == null || !IsMaterialUsable(lod.material))
                     {

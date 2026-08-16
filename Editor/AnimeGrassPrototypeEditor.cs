@@ -14,11 +14,15 @@ namespace Enlyn.Grass.Editor
         private static readonly string[] LodDistanceModeNames =
         {
             "三维距离（仅距离控制）",
-            "XY 距离 + Z 轴距离"
+            "XY 距离 + Z 轴距离",
+            "仅 XY 距离（忽略 Z）",
+            "仅水平 XZ 距离（忽略高度 Y）"
         };
 
         private SerializedProperty lods;
         private SerializedProperty lodDistanceMode;
+        private SerializedProperty replaceDistantLodsWithFarField;
+        private SerializedProperty lastMeshLodIndex;
         private SerializedProperty windWeight;
         private SerializedProperty defaultInstanceColor;
         private SerializedProperty distanceDensityEnabled;
@@ -37,6 +41,8 @@ namespace Enlyn.Grass.Editor
         {
             lods = serializedObject.FindProperty("lods");
             lodDistanceMode = serializedObject.FindProperty("lodDistanceMode");
+            replaceDistantLodsWithFarField = serializedObject.FindProperty("replaceDistantLodsWithFarField");
+            lastMeshLodIndex = serializedObject.FindProperty("lastMeshLodIndex");
             windWeight = serializedObject.FindProperty("windWeight");
             defaultInstanceColor = serializedObject.FindProperty("defaultInstanceColor");
             distanceDensityEnabled = serializedObject.FindProperty("distanceDensityEnabled");
@@ -71,6 +77,18 @@ namespace Enlyn.Grass.Editor
             return lodDistanceMode != null
                 && lodDistanceMode.enumValueIndex
                 == (int)AnimeGrassLodDistanceMode.SeparateXYAndZ;
+        }
+
+        private bool UsesXyDistance()
+        {
+            if (lodDistanceMode == null)
+            {
+                return false;
+            }
+
+            int mode = lodDistanceMode.enumValueIndex;
+            return mode == (int)AnimeGrassLodDistanceMode.SeparateXYAndZ
+                || mode == (int)AnimeGrassLodDistanceMode.XYDistanceOnly;
         }
 
         public override void OnInspectorGUI()
@@ -125,14 +143,49 @@ namespace Enlyn.Grass.Editor
             lodDistanceMode.enumValueIndex = EditorGUILayout.Popup(
                 new GUIContent(
                     "距离计算模式",
-                    "三维距离使用相机到草株的直线距离；XY 与 Z 分离模式使用 sqrt(dx*dx + dy*dy) 作为 XY 距离，使用 abs(dz) 作为 Z 距离，并由更远的一组决定 LOD。"),
+                    "三维距离使用相机到草株的直线距离；XY 与 Z 分离模式由两组距离中更远的一组决定 LOD；仅 XY 忽略 Z；仅水平 XZ 忽略 Unity 的 Y 高度。"),
                 lodDistanceMode.enumValueIndex,
                 LodDistanceModeNames);
+            string distanceModeHelp;
+            if (UsesSeparateAxisDistances())
+            {
+                distanceModeHelp = "当前使用字面世界 XY 平面距离和世界 Z 轴距离分别控制 LOD：XY = sqrt(dx² + dy²)，Z = abs(dz)。任意一组进入更远级别时，都会切换到对应的低细节 LOD。";
+            }
+            else if (lodDistanceMode.enumValueIndex == (int)AnimeGrassLodDistanceMode.XYDistanceOnly)
+            {
+                distanceModeHelp = "当前仅使用世界 XY 平面距离控制 LOD：XY = sqrt(dx² + dy²)。相机沿 Z 轴升高不会切换到面片 LOD，也不会因为高度而隐藏真实草。";
+            }
+            else if (lodDistanceMode.enumValueIndex == (int)AnimeGrassLodDistanceMode.XZDistanceOnly)
+            {
+                distanceModeHelp = "当前仅使用 Unity 水平 XZ 平面距离控制 LOD：XZ = sqrt(dx² + dz²)。相机沿 Y 轴升高不会切换到面片 LOD，适合当前这种高空俯视场景。";
+            }
+            else
+            {
+                distanceModeHelp = "当前仅使用相机到草株的三维直线距离控制 LOD。";
+            }
             EditorGUILayout.HelpBox(
-                UsesSeparateAxisDistances()
-                    ? "当前使用字面世界 XY 平面距离和世界 Z 轴距离分别控制 LOD：XY = sqrt(dx² + dy²)，Z = abs(dz)。任意一组进入更远级别时，都会切换到对应的低细节 LOD；某级的 Z 结束距离表示该级沿 Z 轴切到下一级，不是整株草消失。"
-                    : "当前仅使用相机到草株的三维直线距离控制 LOD。",
+                distanceModeHelp,
                 MessageType.None);
+
+            EditorGUILayout.PropertyField(
+                replaceDistantLodsWithFarField,
+                new GUIContent(
+                    "远景草替换后续 LOD",
+                    "启用后，只渲染到指定的最后实体 LOD；后续面片 LOD 不再提交，最后实体 LOD 会在自身结束距离内渐隐，由远景草覆盖接管。"));
+            if (replaceDistantLodsWithFarField.boolValue)
+            {
+                int maxLodIndex = Mathf.Max(0, lods.arraySize - 1);
+                lastMeshLodIndex.intValue = EditorGUILayout.IntSlider(
+                    new GUIContent(
+                        "最后实体 LOD",
+                        "该索引之后的 LOD 保留配置但不参与渲染。选择 LOD 0 可跳过后续面片草。"),
+                    Mathf.Clamp(lastMeshLodIndex.intValue, 0, maxLodIndex),
+                    0,
+                    maxLodIndex);
+                EditorGUILayout.HelpBox(
+                    "请在远景草覆盖组件中使用相同的距离模式，并点击“匹配最后一级 LOD 渐隐距离”，避免真实草与远景覆盖之间出现空带。",
+                    MessageType.Info);
+            }
 
             EditorGUILayout.Space(8f);
             lodList.DoLayoutList();
@@ -152,6 +205,9 @@ namespace Enlyn.Grass.Editor
             }
 
             bool hasRenderableLod = false;
+            int lastActiveLodIndex = replaceDistantLodsWithFarField.boolValue
+                ? Mathf.Clamp(lastMeshLodIndex.intValue, 0, lods.arraySize - 1)
+                : lods.arraySize - 1;
             for (int i = 0; i < lods.arraySize; i++)
             {
                 SerializedProperty lod = lods.GetArrayElementAtIndex(i);
@@ -159,24 +215,27 @@ namespace Enlyn.Grass.Editor
                 SerializedProperty material = lod.FindPropertyRelative("material");
                 SerializedProperty endDistance = lod.FindPropertyRelative("endDistance");
 
-                if (mesh.objectReferenceValue == null)
+                bool isActiveLod = i <= lastActiveLodIndex;
+                if (isActiveLod && mesh.objectReferenceValue == null)
                 {
                     EditorGUILayout.HelpBox("LOD " + i + " 缺少 Mesh。资源删除或重新导入后，需要重新指定 FBX 里的 Mesh 子资源。", MessageType.Warning);
                 }
 
-                if (material.objectReferenceValue == null)
+                if (isActiveLod && material.objectReferenceValue == null)
                 {
                     EditorGUILayout.HelpBox("LOD " + i + " 缺少材质。", MessageType.Warning);
                 }
 
-                if (i < lods.arraySize - 1 && endDistance.floatValue <= 0f)
+                if (isActiveLod && i < lastActiveLodIndex && endDistance.floatValue <= 0f)
                 {
                     EditorGUILayout.HelpBox(
                         "LOD " + i + " 的结束距离为 0，后续 LOD 无法获得有效的自动切换距离。",
                         MessageType.Warning);
                 }
 
-                hasRenderableLod |= mesh.objectReferenceValue != null && material.objectReferenceValue != null;
+                hasRenderableLod |= isActiveLod
+                    && mesh.objectReferenceValue != null
+                    && material.objectReferenceValue != null;
             }
 
             if (!hasRenderableLod)
@@ -209,9 +268,17 @@ namespace Enlyn.Grass.Editor
             float line = EditorGUIUtility.singleLineHeight;
             float spacing = EditorGUIUtility.standardVerticalSpacing;
             bool separateAxisDistances = UsesSeparateAxisDistances();
+            bool xyDistance = UsesXyDistance();
+            bool xzDistance = lodDistanceMode.enumValueIndex
+                == (int)AnimeGrassLodDistanceMode.XZDistanceOnly;
+            bool replacedByFarField = replaceDistantLodsWithFarField.boolValue
+                && index > lastMeshLodIndex.intValue;
             float y = rect.y + LodElementPadding;
             Rect lineRect = new Rect(rect.x, y, rect.width, line);
-            EditorGUI.LabelField(lineRect, "LOD " + index, EditorStyles.boldLabel);
+            EditorGUI.LabelField(
+                lineRect,
+                "LOD " + index + (replacedByFarField ? "（由远景草替换）" : string.Empty),
+                EditorStyles.boldLabel);
 
             y += line + spacing;
             lineRect.y = y;
@@ -233,8 +300,10 @@ namespace Enlyn.Grass.Editor
                     lineRect,
                     startDistance,
                     new GUIContent(
-                        separateAxisDistances
-                            ? (index > 0 ? "XY 开始距离（自动）" : "XY 开始距离（固定）")
+                        xyDistance || xzDistance
+                            ? (index > 0
+                                ? (xzDistance ? "XZ 开始距离（自动）" : "XY 开始距离（自动）")
+                                : (xzDistance ? "XZ 开始距离（固定）" : "XY 开始距离（固定）"))
                             : (index > 0 ? "开始距离（自动）" : "开始距离（固定）"),
                         index > 0
                             ? "自动等于上一级 LOD 的结束距离，以保证两级的点状过渡连续。"
@@ -247,9 +316,13 @@ namespace Enlyn.Grass.Editor
                 lineRect,
                 endDistance,
                 new GUIContent(
-                    separateAxisDistances ? "XY 结束距离" : "结束距离",
-                    separateAxisDistances
-                        ? "该 LOD 在世界 XY 平面距离上的结束值。0 表示无上限。"
+                    xyDistance || xzDistance
+                        ? (xzDistance ? "XZ 结束距离" : "XY 结束距离")
+                        : "结束距离",
+                    xyDistance || xzDistance
+                        ? (xzDistance
+                            ? "该 LOD 在 Unity 水平 XZ 平面距离上的结束值。0 表示无上限。"
+                            : "该 LOD 在世界 XY 平面距离上的结束值。0 表示无上限。")
                         : "该 LOD 结束显示的三维直线距离。最后一个 LOD 的结束距离就是最大显示距离。0 表示无上限。"));
 
             y += line + spacing;
@@ -258,7 +331,9 @@ namespace Enlyn.Grass.Editor
                 lineRect,
                 fadeDistance,
                 new GUIContent(
-                    separateAxisDistances ? "XY 渐隐距离" : "渐隐距离",
+                    xyDistance || xzDistance
+                        ? (xzDistance ? "XZ 渐隐距离" : "XY 渐隐距离")
+                        : "渐隐距离",
                     "控制从该 LOD 到下一级的互补随机点状过渡；最后一级也用该距离渐隐到最大显示距离。"));
 
             if (separateAxisDistances)

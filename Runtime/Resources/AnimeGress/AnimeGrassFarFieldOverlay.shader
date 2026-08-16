@@ -39,6 +39,7 @@ Shader "Hidden/AnimeGress/Far Field Overlay"
             float4 _AnimeGrassFarWorldToUV;
             float4 _AnimeGrassFarHeightParams;
             float4 _AnimeGrassFarDistanceParams;
+            float _AnimeGrassFarDistanceMode;
             half4 _AnimeGrassFarAppearanceParams;
             float4 _AnimeGrassFarPatternParams;
             half4 _AnimeGrassFarPatternTint;
@@ -236,7 +237,16 @@ Shader "Hidden/AnimeGress/Far Field Overlay"
                     slopeStart,
                     min(1.0h, slopeStart + slopeFeather),
                     upwardAmount);
-                float cameraDistance = distance(_WorldSpaceCameraPos, positionWS);
+                float3 cameraOffset = _WorldSpaceCameraPos - positionWS;
+                float cameraDistance = length(cameraOffset);
+                if (_AnimeGrassFarDistanceMode > 1.5)
+                {
+                    cameraDistance = length(cameraOffset.xz);
+                }
+                else if (_AnimeGrassFarDistanceMode > 0.5)
+                {
+                    cameraDistance = length(cameraOffset.xy);
+                }
                 half farFadeInLinear = saturate(
                     (cameraDistance - _AnimeGrassFarDistanceParams.x)
                     * _AnimeGrassFarDistanceParams.z);

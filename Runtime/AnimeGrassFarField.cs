@@ -5,6 +5,13 @@ using UnityEngine.Serialization;
 
 namespace Enlyn.Grass
 {
+    public enum AnimeGrassFarFieldDistanceMode
+    {
+        SpatialDistance = 0,
+        XYDistanceOnly = 1,
+        XZDistanceOnly = 2
+    }
+
     [ExecuteAlways]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(AnimeGrassField))]
@@ -19,6 +26,7 @@ namespace Enlyn.Grass
         private static readonly int WorldToUvId = Shader.PropertyToID("_AnimeGrassFarWorldToUV");
         private static readonly int HeightParamsId = Shader.PropertyToID("_AnimeGrassFarHeightParams");
         private static readonly int DistanceParamsId = Shader.PropertyToID("_AnimeGrassFarDistanceParams");
+        private static readonly int DistanceModeId = Shader.PropertyToID("_AnimeGrassFarDistanceMode");
         private static readonly int AppearanceParamsId = Shader.PropertyToID("_AnimeGrassFarAppearanceParams");
         private static readonly int PatternParamsId = Shader.PropertyToID("_AnimeGrassFarPatternParams");
         private static readonly int PatternTintId = Shader.PropertyToID("_AnimeGrassFarPatternTint");
@@ -30,6 +38,9 @@ namespace Enlyn.Grass
 
         [SerializeField]
         private bool farFieldEnabled = true;
+
+        [SerializeField]
+        private AnimeGrassFarFieldDistanceMode distanceMode;
 
         [SerializeField, Min(0f)]
         private float transitionStartDistance = 57f;
@@ -233,7 +244,10 @@ namespace Enlyn.Grass
                 for (int lodIndex = 0; lodIndex < lods.Length; lodIndex++)
                 {
                     AnimeGrassLod lod = lods[lodIndex];
-                    if (lod != null && lod.material != null && lod.endDistance > farthestEndDistance)
+                    if (prototype.IsLodActive(lodIndex)
+                        && lod != null
+                        && lod.material != null
+                        && lod.endDistance > farthestEndDistance)
                     {
                         farthestEndDistance = lod.endDistance;
                         matchingFadeDistance = lod.fadeDistance;
@@ -337,6 +351,7 @@ namespace Enlyn.Grass
                     maximumDisplayDistance,
                     1f / Mathf.Max(0.01f, transitionEndDistance - transitionStartDistance),
                     1f / Mathf.Max(0.01f, maximumDisplayDistance - fadeOutStartDistance)));
+            properties.SetFloat(DistanceModeId, (float)distanceMode);
             properties.SetVector(
                 AppearanceParamsId,
                 new Vector4(
